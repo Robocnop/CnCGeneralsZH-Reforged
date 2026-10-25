@@ -19576,7 +19576,7 @@ TEST(every_shipped_master_is_fork_owned_and_retail_files_are_not)
 		if (relative == "Scripts/SkirmishScripts.scb")
 			continue;
 		// the post-build copy keeps Data\ in front of these and puts the rest at the top of Run
-		const char *underData[] = { "INI/", "Scripts/", "Turkish/", "German/", "Ukrainian/", "Russian/" };
+		const char *underData[] = { "INI/", "Scripts/", "Turkish/", "German/", "Ukrainian/", "Russian/", "French/" };
 		Bool keepsData = relative == "Patch.str";
 		for (const char *prefix : underData)
 			keepsData = keepsData || relative.rfind(prefix, 0) == 0;

@@ -8,6 +8,12 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## French
+
+- The language box under Options, Gameplay now offers Français after Русский. All 4722 lines the game shows are in French: menus, tooltips, briefings and subtitles in the words of EA's own French release, so unit names and orders read as French players have always known them, and every line Reforged added, its options, hotkeys, lobby, score screen and Turkiye included, translated to match.
+- An English install can pick it too. A French install that picks it reads the new options, hotkeys and lobby in French, where they used to stay in English. `-language french` picks it for one run.
+- Lines EA left unfinished in French, such as the Dragon Tank's and the MiG's fire buttons, which showed a lone full stop, are written out.
+
 ## A Random tab in the map list
 
 - Select Map has a third tab beside Official and Unofficial. Pick a map type from the official maps, listed in the Official tab's order, or Surprise me, and a size from Tiny to Extra Large; the preview shows the original map with its start positions, the way the Official tab does. Accept makes a new map from that choice for everybody seated, in the skirmish, LAN and online rooms alike, and every Accept rolls a fresh one. Extra Large still seats eight.

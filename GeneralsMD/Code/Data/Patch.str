@@ -843,6 +843,10 @@ GUI:Language4
 "Русский"
 END
 
+GUI:Language5
+"Français"
+END
+
 TOOLTIP:Language
 "The language of menus, orders, briefings and subtitles. Voices and videos stay as installed. Takes effect the next time the game starts."
 END
