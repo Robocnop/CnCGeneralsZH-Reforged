@@ -36,6 +36,7 @@
 
 #include <stddef.h>	// offsetof, for the wire-layout asserts (B4)
 #include <map>
+#include <vector>
 #include "GameNetwork/Transport.h"
 #include "GameNetwork/NetworkInterface.h"
 #include "GameNetwork/NetworkDefs.h"
@@ -182,6 +183,7 @@ public:
 	virtual void RequestLocations( void );																				///< Request everybody to respond with where they are
 	virtual void RequestGameJoin( LANGameInfo *game, UnsignedInt ip = 0 );				///< Request to join a game
 	virtual void RequestGameJoinDirectConnect( UnsignedInt ipaddress );						///< Request to join a game at an IP address
+	void addPunchTarget( UnsignedInt ip );		///< over the internet, a player to send probes to (-punch)
 	virtual void RequestGameLeave( void );																				///< Tell everyone we're leaving
 	virtual void RequestAccept( void );																						///< Indicate we're OK with the game options
 	virtual void RequestHasMap( void );																						///< Send our map status
@@ -283,6 +285,15 @@ protected:
 		 last talked to us from, and every message to that address goes there (lobbyPortFor). */
 	std::map<UnsignedInt, UnsignedShort> m_lobbyPorts;
 	UnsignedShort lobbyPortFor( UnsignedInt ip );
+	/* Hole punching.  A router lets in what looks like the answer to something sent out, so a host
+		 that sends probes to the players it expects (-punch, or the address typed before Host) lets
+		 their requests in with no port opened, and a joining player both probes the host and asks
+		 again every second until the host answers.  Probes twice a second, each way. */
+	std::vector<UnsignedInt> m_punchTargets;
+	UnsignedInt m_lastPunch;
+	UnsignedInt m_lastDirectConnectAsk;
+	void punchHoles( UnsignedInt now );
+	void sendDirectConnectAsk( void );
 	Transport*					m_transport;
 #if !defined(_WIN32)
 	/* Port defect 29: the wildcard socket that takes the broadcasts m_transport, bound to m_localIP, cannot

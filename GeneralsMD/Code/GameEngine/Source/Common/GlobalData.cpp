@@ -1064,6 +1064,7 @@ GlobalData::GlobalData()
 	m_lanLobbyOnStart = FALSE;
 	m_directConnectOnStart = FALSE;
 	m_directConnectTarget.clear();
+	m_punchTargets.clear();
 	m_skirmishLobbyOnStart = FALSE;
 	m_optionsMenuOnStart = FALSE;
 	m_mapLight = FALSE;

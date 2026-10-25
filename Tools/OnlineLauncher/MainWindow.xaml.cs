@@ -165,7 +165,7 @@ public partial class MainWindow : Window
         if (publicIP is { } ip)
         {
             MyCode.Text = GameCode.FromIP(ip);
-            MyCodeHint.Text = $"Adresse publique {GameCode.ToDotted(ip)}. Donnez ce code à vos amis, puis cliquez sur « Héberger en ligne ».";
+            MyCodeHint.Text = $"Adresse publique {GameCode.ToDotted(ip)}. Échangez vos codes : chacun colle celui de l'autre ci-dessous, puis l'hôte clique sur « Héberger en ligne » et l'ami sur « Rejoindre ».";
             CopyButton.IsEnabled = true;
         }
         else
@@ -272,7 +272,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnHost(object sender, RoutedEventArgs e) => Launch("-publicip auto -directconnect");
+    // the friend's code, when it is there, lets the host's router take his join for an answer (-punch)
+    private void OnHost(object sender, RoutedEventArgs e)
+    {
+        var text = FriendCode.Text.Trim();
+        var punch = GameCode.IsJoinTarget(text)
+            ? $" -punch {(GameCode.TryToIP(text, out var ip) ? GameCode.FromIP(ip) : text)}" : "";
+        Launch("-publicip auto -directconnect" + punch);
+    }
 
     private void OnJoin(object sender, RoutedEventArgs e)
     {

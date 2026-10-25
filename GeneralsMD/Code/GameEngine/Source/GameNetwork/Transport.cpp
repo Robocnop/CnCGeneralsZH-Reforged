@@ -578,6 +578,14 @@ Int Transport::writeDatagram( const UnsignedByte *buf, Int len, UnsignedInt addr
 	return m_udpsock->Write(buf, len, addr, port);
 }
 
+void Transport::sendProbe( UnsignedInt addr, UnsignedShort port )
+{
+	if (m_udpsock == NULL || addr == 0)
+		return;
+	UnsignedByte probe[RELAY_PROBE_BYTES];
+	m_udpsock->Write(probe, relayBuildProbe(FALSE, probe), addr, port);
+}
+
 /* Every peer but the router, straight, whether or not its traffic goes through the router just now:
 	 the probe is how a pair finds out it can talk again, and it keeps the routers between them open. */
 void Transport::sendRelayProbes( UnsignedInt now )

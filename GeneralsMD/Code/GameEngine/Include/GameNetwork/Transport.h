@@ -70,6 +70,9 @@ public:
 	void setRelayPeer( Int index, UnsignedInt addr, UnsignedShort port );
 	void setRelayRouter( UnsignedInt addr, UnsignedShort port );
 	Bool isRelayingTo( Int index );		///< whether datagrams for this peer go through the router now
+	/// a probe straight out of the socket, for a router on the way to let the answer back in
+	/// (hole punching); the far transport takes it and hands nothing up
+	void sendProbe( UnsignedInt addr, UnsignedShort port );
 
 #if !defined(_WIN32)
 	/* Port defect 29 (udp.h): shareAddress(TRUE) before init lets this socket share its port with another

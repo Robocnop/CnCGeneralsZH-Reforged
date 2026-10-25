@@ -2551,6 +2551,18 @@ Int parseConnect(char *args[], int num)
 	return 2;
 }
 
+/* -punch <code|a.b.c.d>[,...] names the players a host expects.  Its lobby sends each of them a
+	 small probe twice a second, and the host's router takes their join requests for answers to
+	 those and lets them in: the host then needs no port opened either, on most routers (LANAPI.h). */
+Int parsePunch(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+	{
+		TheWritableGlobalData->m_punchTargets = args[1];
+	}
+	return 2;
+}
+
 /* -skirmishlobby opens the skirmish staging room, which is the screen the lobby settings live on.
    No switch could reach it before: the room is behind two main menu clicks, so a change to its
    layout could be argued about but not photographed.  With -screenshot it can now be looked at from
@@ -3063,6 +3075,7 @@ static CommandLineParam params[] =
 	{ "-lanlobby", parseLanLobby },
 	{ "-directconnect", parseDirectConnect },
 	{ "-connect", parseConnect },
+	{ "-punch", parsePunch },
 	{ "-publicip", parsePublicIP },
 	{ "-skirmishlobby", parseSkirmishLobby },
 	{ "-factionpicker", parseFactionPicker },

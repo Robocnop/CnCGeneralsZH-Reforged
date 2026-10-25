@@ -37,6 +37,9 @@
 #include "Common/Registry.h"
 #include "GameNetwork/LANAPI.h"
 #include "GameNetwork/NetworkUtil.h"
+#include <algorithm>
+
+#include "GameNetwork/GameCode.h"
 #include "GameNetwork/IPEnumeration.h"
 #include "GameNetwork/StunClient.h"
 #include "GameNetwork/UPnPPortMapper.h"
@@ -85,6 +88,8 @@ LANAPI::LANAPI( void ) : m_transport(NULL)
 		m_lanMaxOptionsLength, sizeof(LANMessage), MAX_LANAPI_PACKET_SIZE));
 
 	m_lastResendTime = 0;
+	m_lastPunch = 0;
+	m_lastDirectConnectAsk = 0;
 	//
 	m_lobbyPlayers = NULL;
 	m_games = NULL;
@@ -430,6 +435,7 @@ void LANAPI::update( void )
 #if !defined(_WIN32)
 	collectBroadcasts();
 #endif
+	punchHoles(now);
 
 	// Handle any new messages
 	int i;
@@ -780,6 +786,17 @@ void LANAPI::RequestGameJoinDirectConnect(UnsignedInt ipaddress)
 
 	m_directConnectRemoteIP = ipaddress;
 
+	DEBUG_LOG(("LANAPI::RequestGameJoinDirectConnect - asking %d.%d.%d.%d:%d for its game\n",
+		ipaddress >> 24, (ipaddress >> 16) & 0xff, (ipaddress >> 8) & 0xff, ipaddress & 0xff, lobbyPortFor(ipaddress)));
+	sendDirectConnectAsk();
+
+	m_pendingAction = ACT_JOINDIRECTCONNECT;
+	// over the internet the ask goes again every second (punchHoles) while the routers open up
+	m_expiration = Clock_Milliseconds() + (TheGlobalData->m_lanPublicIP.isNotEmpty() ? 20000 : m_actionTimeout);
+}
+
+void LANAPI::sendDirectConnectAsk( void )
+{
 	LANMessage msg;
 	msg.LANMessageType = LANMessage::MSG_REQUEST_GAME_INFO;
 	fillInLANMessage(&msg);
@@ -789,12 +806,37 @@ void LANAPI::RequestGameJoinDirectConnect(UnsignedInt ipaddress)
 	WideCharNCpy(msg.PlayerInfo.playerName, m_name.str(), g_lanPlayerNameLength);
 	msg.PlayerInfo.playerName[g_lanPlayerNameLength] = 0;
 
-	DEBUG_LOG(("LANAPI::RequestGameJoinDirectConnect - asking %d.%d.%d.%d:%d for its game\n",
-		ipaddress >> 24, (ipaddress >> 16) & 0xff, (ipaddress >> 8) & 0xff, ipaddress & 0xff, lobbyPortFor(ipaddress)));
-	sendMessage(&msg, ipaddress);
+	sendMessage(&msg, m_directConnectRemoteIP);
+	m_lastDirectConnectAsk = Clock_Milliseconds();
+}
 
-	m_pendingAction = ACT_JOINDIRECTCONNECT;
-	m_expiration = Clock_Milliseconds() + m_actionTimeout;
+void LANAPI::addPunchTarget( UnsignedInt ip )
+{
+	if (ip == 0 || ip == m_localIP || std::find(m_punchTargets.begin(), m_punchTargets.end(), ip) != m_punchTargets.end())
+		return;
+	DEBUG_LOG(("LANAPI::addPunchTarget - probing %d.%d.%d.%d so its requests get in\n",
+		ip >> 24, (ip >> 16) & 0xff, (ip >> 8) & 0xff, ip & 0xff));
+	m_punchTargets.push_back(ip);
+}
+
+void LANAPI::punchHoles( UnsignedInt now )
+{
+	if (TheGlobalData->m_lanPublicIP.isEmpty() || now - m_lastPunch < 500)
+		return;
+	m_lastPunch = now;
+
+	for (size_t i = 0; i < m_punchTargets.size(); ++i)
+	{
+		m_transport->sendProbe(m_punchTargets[i], lobbyPortFor(m_punchTargets[i]));
+	}
+	if (m_pendingAction == ACT_JOINDIRECTCONNECT && m_directConnectRemoteIP != 0)
+	{
+		m_transport->sendProbe(m_directConnectRemoteIP, lobbyPortFor(m_directConnectRemoteIP));
+		if (now - m_lastDirectConnectAsk >= 1000)
+		{
+			sendDirectConnectAsk();
+		}
+	}
 }
 
 void LANAPI::RequestGameLeave( void )
@@ -1476,6 +1518,18 @@ void LANAPI::applyPublicIP( void )
 		return;
 
 	m_localIP = publicIP;
+
+	// -punch: the players this host expects, by game code or address
+	AsciiString targets = TheGlobalData->m_punchTargets;
+	AsciiString target;
+	while (targets.nextToken(&target, ","))
+	{
+		UnsignedInt ip = 0;
+		if (!gameCodeToIP(target.str(), &ip))
+			ip = ResolveIP(target);
+		if (ip != INADDR_NONE)
+			addPunchTarget(ip);
+	}
 
 	// The others have to reach us: ask the router to pass the lobby and game ports here.  A router
 	// without UPnP leaves that to the player, who opens UDP 8086 and 8088 himself.

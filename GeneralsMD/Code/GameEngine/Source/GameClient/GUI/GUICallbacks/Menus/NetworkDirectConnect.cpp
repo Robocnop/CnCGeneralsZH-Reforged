@@ -211,6 +211,17 @@ void HostDirectConnectGame()
 	while (name.getLength() > g_lanPlayerNameLength)
 		name.removeLastChar();
 	TheLAN->RequestSetName(name);
+
+	// over the internet, a friend's code typed in the box before Host: probe him so he gets in (LANAPI.h)
+	if (TheGlobalData->m_lanPublicIP.isNotEmpty())
+	{
+		AsciiString friendEntry;
+		friendEntry.translate(GadgetComboBoxGetText(comboboxRemoteIP));
+		UnsignedInt friendIP = 0;
+		if (gameCodeToIP(friendEntry.str(), &friendIP))
+			TheLAN->addPunchTarget(friendIP);
+	}
+
 	TheLAN->RequestGameCreate(localIPString, TRUE);
 }
 

@@ -652,6 +652,7 @@ public:
 	Bool m_lanLobbyOnStart;						///< -lanlobby: open the LAN lobby instead of stopping at the main menu
 	Bool m_directConnectOnStart;			///< -directconnect: open the Direct Connect screen instead of stopping at the main menu
 	AsciiString m_directConnectTarget;	///< -connect <code|a.b.c.d>: join that host from the Direct Connect screen (empty = none)
+	AsciiString m_punchTargets;			///< -punch <code|a.b.c.d>[,...]: players the lobby sends probes to, so their joins get through the routers (empty = none)
 	Bool m_skirmishLobbyOnStart;			///< -skirmishlobby: open the skirmish staging room instead of stopping at the main menu
 	Bool m_optionsMenuOnStart;				///< -optionsmenu: open the options screen over the main menu at startup
 	Bool m_mapLight;								///< "MapLight": warm low sun, ground haze and aircraft wakes (Direct3D 11, client only)

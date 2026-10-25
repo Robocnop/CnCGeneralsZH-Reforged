@@ -13198,6 +13198,13 @@ TEST(two_copies_on_one_machine_each_get_their_own_lobby_address_and_name)
 	CHECK( TheGlobalData->m_directConnectOnStart );
 	CHECK( !TheGlobalData->m_shellMapOn );
 
+	// -punch names the players a host probes so their joins get through his router
+	char punch[] = "-punch";
+	char punchTargets[] = "K7QM-2XFA,203.0.113.9";
+	char *argvPunch[] = { exe, punch, punchTargets };
+	parseCommandLine( 3, argvPunch );
+	CHECK_STR( TheGlobalData->m_punchTargets.str(), "K7QM-2XFA,203.0.113.9" );
+
 	// -skirmishlobby is the same trick for the staging room the lobby settings live on
 	TheWritableGlobalData->m_shellMapOn = TRUE;
 	CHECK( !TheGlobalData->m_skirmishLobbyOnStart );
