@@ -36,7 +36,7 @@ robocopy $Run $game /E /NFL /NDL /NJH /NJS /NP `
 	/XF generals.pdb place_steam_build_here.txt *.big *.log DebugLogFile*.txt dx11shaders.cache | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
 
-$tag = (git -C $PSScriptRoot describe --tags --abbrev=0 2>$null)
+$tag = (git -C $PSScriptRoot describe --tags --abbrev=0 --match "v*" 2>$null)
 $sha = (git -C $PSScriptRoot rev-parse --short=7 HEAD)
 if (-not $tag) { $tag = "dev" }
 Set-Content -Path (Join-Path $game "version.txt") -Value "$tag+$sha" -Encoding ascii
