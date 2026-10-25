@@ -274,6 +274,9 @@ protected:
 	UnsignedInt					m_localIP;
 	UnsignedInt					m_bindIP;
 	void applyPublicIP( void );
+	/// with -publicip, the router's mappings of the lobby and game ports to m_bindIP (UPnPPortMapper.h)
+	class UPnPPortMapper *m_portMapper;
+	UnsignedInt					m_portMapperIP;	///< the m_bindIP those mappings point at
 	Transport*					m_transport;
 #if !defined(_WIN32)
 	/* Port defect 29: the wildcard socket that takes the broadcasts m_transport, bound to m_localIP, cannot

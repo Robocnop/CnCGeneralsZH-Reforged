@@ -2515,8 +2515,9 @@ Int parseLanLobby(char *args[], int num)
 	 every player by an address, and a LAN address is one only that LAN can reach; with this the
 	 machine goes by the address its router has on the internet instead, which every player then
 	 agrees on.  auto asks a public STUN server for it (StunClient.h).  The sockets stay on the
-	 machine's own address; only the name the others know it by changes.  The host's router has to
-	 let UDP 8086 and 8088 in, and the others join him with Direct Connect. */
+	 machine's own address; only the name the others know it by changes.  The router is asked over
+	 UPnP to let UDP 8086 and 8088 in (UPnPPortMapper.h); one without UPnP needs them opened by hand
+	 to host.  The others join the host with Direct Connect. */
 Int parsePublicIP(char *args[], int num)
 {
 	if (TheWritableGlobalData && num > 1)

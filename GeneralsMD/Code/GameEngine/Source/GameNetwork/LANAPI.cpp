@@ -38,6 +38,7 @@
 #include "GameNetwork/LANAPI.h"
 #include "GameNetwork/NetworkUtil.h"
 #include "GameNetwork/StunClient.h"
+#include "GameNetwork/UPnPPortMapper.h"
 #include "Common/GlobalData.h"
 #include "Common/RandomValue.h"
 #include "GameClient/GameText.h"
@@ -91,6 +92,8 @@ LANAPI::LANAPI( void ) : m_transport(NULL)
 	m_expiration = 0;
 	m_localIP = 0;
 	m_bindIP = 0;
+	m_portMapper = NULL;
+	m_portMapperIP = 0;
 	m_inLobby = true;
 	m_isInLANMenu = TRUE;
 	m_currentGame = NULL;
@@ -109,6 +112,8 @@ LANAPI::LANAPI( void ) : m_transport(NULL)
 LANAPI::~LANAPI( void )
 {
 	reset();
+	delete m_portMapper;	// takes the router's mappings back
+	m_portMapper = NULL;
 	if (m_transport)
 		delete m_transport;
 #if !defined(_WIN32)
@@ -1423,6 +1428,21 @@ void LANAPI::applyPublicIP( void )
 		return;
 
 	m_localIP = publicIP;
+
+	// The others have to reach us: ask the router to pass the lobby and game ports here.  A router
+	// without UPnP leaves that to the player, who opens UDP 8086 and 8088 himself.
+	if (m_portMapper == NULL || m_portMapperIP != m_bindIP)
+	{
+		delete m_portMapper;
+		m_portMapper = NEW UPnPPortMapper;
+		m_portMapperIP = m_bindIP;
+		const UnsignedShort ports[] = { lobbyPort, NETWORK_BASE_PORT_NUMBER };
+		if (!m_portMapper->mapPorts(m_bindIP, ports, ARRAY_SIZE(ports)))
+		{
+			DEBUG_LOG(("LANAPI::applyPublicIP - the router did not open UDP %d and %d; open them by hand to host\n",
+				lobbyPort, NETWORK_BASE_PORT_NUMBER));
+		}
+	}
 	DEBUG_LOG(("LANAPI::applyPublicIP - known as %d.%d.%d.%d, listening on %d.%d.%d.%d\n",
 		m_localIP >> 24, (m_localIP >> 16) & 0xff, (m_localIP >> 8) & 0xff, m_localIP & 0xff,
 		m_bindIP >> 24, (m_bindIP >> 16) & 0xff, (m_bindIP >> 8) & 0xff, m_bindIP & 0xff));

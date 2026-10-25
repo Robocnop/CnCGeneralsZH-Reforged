@@ -60,6 +60,7 @@
 #include "GameNetwork/StallJudgement.h"
 #include "GameNetwork/KeepAliveSchedule.h"
 #include "GameNetwork/StunClient.h"
+#include "GameNetwork/UPnPPortMapper.h"
 #include "GameNetwork/CushionMetrics.h"
 #include "GameNetwork/LinkSimulation.h"
 #include "Common/Energy.h"
@@ -6160,6 +6161,97 @@ TEST(stun_response_from_an_rfc3489_server_gives_the_mapped_address)
 	CHECK( stunParseBindingResponse( response, sizeof( response ), TheStunTestTransaction, &ip, &port ) );
 	CHECK_EQ( ip, (UnsignedInt)( ( 203u << 24 ) | ( 0u << 16 ) | ( 113u << 8 ) | 9u ) );
 	CHECK_EQ( (Int)port, 8088 );
+}
+
+// ---------------------------------------------------------------------------------------------
+// UPnP (UPnPPortMapper.h): with -publicip the host's router is asked to pass UDP 8086 and 8088.
+// A router's answers, written out the way home routers send them.
+// ---------------------------------------------------------------------------------------------
+
+TEST(upnp_search_asks_for_an_internet_gateway)
+{
+	const std::string search = upnpBuildSearchRequest();
+	CHECK( search.rfind( "M-SEARCH * HTTP/1.1\r\n", 0 ) == 0 );
+	CHECK( search.find( "MAN: \"ssdp:discover\"\r\n" ) != std::string::npos );
+	CHECK( search.find( "ST: urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n" ) != std::string::npos );
+	CHECK( search.size() >= 4 && search.compare( search.size() - 4, 4, "\r\n\r\n" ) == 0 );
+}
+
+TEST(upnp_search_answer_gives_the_description_url_whatever_the_header_case)
+{
+	std::string location;
+	CHECK( upnpParseSearchLocation( "HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=120\r\n"
+		"Location: http://192.168.1.1:49152/rootDesc.xml \r\nST: x\r\n\r\n", &location ) );
+	CHECK( location == "http://192.168.1.1:49152/rootDesc.xml" );
+	CHECK( upnpParseSearchLocation( "HTTP/1.1 200 OK\r\nLOCATION:http://10.0.0.138/igd.xml\r\n\r\n", &location ) );
+	CHECK( location == "http://10.0.0.138/igd.xml" );
+	// a header that only ends in "location" is not the one
+	CHECK( !upnpParseSearchLocation( "HTTP/1.1 200 OK\r\nX-Old-Location: http://1.2.3.4/\r\n\r\n", &location ) );
+}
+
+TEST(upnp_urls_split_into_host_port_and_path)
+{
+	std::string host, path;
+	UnsignedShort port = 0;
+	CHECK( upnpParseHttpUrl( "http://192.168.1.1:49152/ctl/IPConn", &host, &port, &path ) );
+	CHECK( host == "192.168.1.1" );
+	CHECK_EQ( (Int)port, 49152 );
+	CHECK( path == "/ctl/IPConn" );
+	CHECK( upnpParseHttpUrl( "http://192.168.0.254", &host, &port, &path ) );
+	CHECK_EQ( (Int)port, 80 );
+	CHECK( path == "/" );
+	CHECK( !upnpParseHttpUrl( "https://192.168.1.1/", &host, &port, &path ) );
+	CHECK( !upnpParseHttpUrl( "http://192.168.1.1:99999/", &host, &port, &path ) );
+}
+
+TEST(upnp_description_gives_the_wan_service_and_its_control_url)
+{
+	// a Layer3Forwarding service first, the WANIPConnection one nested further down, its control URL
+	// relative and no URLBase: it is resolved against where the description came from
+	const std::string description =
+		"HTTP/1.1 200 OK\r\n\r\n<?xml version=\"1.0\"?><root><device>"
+		"<serviceList><service><serviceType>urn:schemas-upnp-org:service:Layer3Forwarding:1</serviceType>"
+		"<controlURL>/ctl/L3F</controlURL></service></serviceList>"
+		"<deviceList><device><deviceList><device><serviceList><service>"
+		"<serviceType>urn:schemas-upnp-org:service:WANIPConnection:1</serviceType>"
+		"<controlURL>/ctl/IPConn</controlURL></service></serviceList></device></deviceList></device></deviceList>"
+		"</device></root>";
+	std::string serviceType, controlUrl;
+	CHECK( upnpFindWanService( description, "http://192.168.1.1:49152/rootDesc.xml", &serviceType, &controlUrl ) );
+	CHECK( serviceType == "urn:schemas-upnp-org:service:WANIPConnection:1" );
+	CHECK( controlUrl == "http://192.168.1.1:49152/ctl/IPConn" );
+
+	// a PPP link, a URLBase and a control URL without its leading slash
+	const std::string ppp =
+		"<root><URLBase>http://10.0.0.138:5000</URLBase><service>"
+		"<serviceType>urn:schemas-upnp-org:service:WANPPPConnection:1</serviceType>"
+		"<controlURL>upnp/control/WANPPPConn1</controlURL></service></root>";
+	CHECK( upnpFindWanService( ppp, "http://10.0.0.138:80/desc.xml", &serviceType, &controlUrl ) );
+	CHECK( serviceType == "urn:schemas-upnp-org:service:WANPPPConnection:1" );
+	CHECK( controlUrl == "http://10.0.0.138:5000/upnp/control/WANPPPConn1" );
+
+	CHECK( !upnpFindWanService( "<root><service><serviceType>urn:schemas-upnp-org:service:Layer3Forwarding:1"
+		"</serviceType><controlURL>/x</controlURL></service></root>", "http://1.2.3.4/", &serviceType, &controlUrl ) );
+}
+
+TEST(upnp_port_mapping_requests_carry_the_port_and_the_client)
+{
+	const std::string service = "urn:schemas-upnp-org:service:WANIPConnection:1";
+	const std::string add = upnpBuildAddPortMapping( service, 8088, "192.168.1.20", "Zero Hour Reforged 8088", 14400 );
+	CHECK( add.find( "<u:AddPortMapping xmlns:u=\"urn:schemas-upnp-org:service:WANIPConnection:1\">" ) != std::string::npos );
+	CHECK( add.find( "<NewExternalPort>8088</NewExternalPort>" ) != std::string::npos );
+	CHECK( add.find( "<NewInternalPort>8088</NewInternalPort>" ) != std::string::npos );
+	CHECK( add.find( "<NewProtocol>UDP</NewProtocol>" ) != std::string::npos );
+	CHECK( add.find( "<NewInternalClient>192.168.1.20</NewInternalClient>" ) != std::string::npos );
+	CHECK( add.find( "<NewLeaseDuration>14400</NewLeaseDuration>" ) != std::string::npos );
+	const std::string remove = upnpBuildDeletePortMapping( service, 8086 );
+	CHECK( remove.find( "<u:DeletePortMapping" ) != std::string::npos );
+	CHECK( remove.find( "<NewExternalPort>8086</NewExternalPort>" ) != std::string::npos );
+
+	CHECK_EQ( upnpHttpStatus( "HTTP/1.1 200 OK\r\n\r\n" ), 200 );
+	CHECK_EQ( upnpHttpStatus( "HTTP/1.0 500 Internal Server Error\r\n" ), 500 );
+	CHECK_EQ( upnpHttpStatus( "garbage" ), 0 );
+	CHECK_EQ( upnpHttpStatus( "" ), 0 );
 }
 
 // ---------------------------------------------------------------------------------------------
