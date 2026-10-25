@@ -8,6 +8,13 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Online play, player to player
+
+- A LAN game over the internet with no server and no VPN: one player hosts, the others join with an eight-character game code shown on the Direct Connect screen, which stands for the host's address and refuses a mistyped one. `-publicip auto` turns it on; the online launcher in `Tools/OnlineLauncher` passes it.
+- The game finds the address the internet sees it at (STUN), asks the host's router to open UDP 8086 and 8088 (UPnP), answers every player at the port his router really uses, and probes the players a host expects (`-punch`) so their joins get through without a port opened on most routers.
+- Players who cannot reach each other send what goes from player to player, disconnect votes, load progress, resends and map transfers, through the host instead.
+- A network adapter that leads nowhere, a VMware, VirtualBox or VPN one, is passed over for one that reaches the internet. See [docs/online-play.md](docs/online-play.md).
+
 ## French
 
 - The language box under Options, Gameplay now offers Français after Русский. All 4722 lines the game shows are in French: menus, tooltips, briefings and subtitles in the words of EA's own French release, so unit names and orders read as French players have always known them, and every line Reforged added, its options, hotkeys, lobby, score screen and Turkiye included, translated to match.
