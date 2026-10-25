@@ -163,6 +163,7 @@ public:
 	Int getPingsRecieved();
 
 private:
+	void syncRelayRoutes();			///< over the internet, tells the transport who the players and the router are (RelayEnvelope.h)
 	void doRelay();
 	void doKeepAlive();
 	void sendRemoteCommand(NetCommandRef *msg);

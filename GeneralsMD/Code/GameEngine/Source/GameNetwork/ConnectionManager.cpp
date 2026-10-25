@@ -383,6 +383,31 @@ void ConnectionManager::destroyGameMessages() {
 }
 
 /**
+ * A game over the internet (-publicip): two players behind their own routers may not reach each
+ * other, and what they send each other directly - disconnect votes, load progress, frame resends,
+ * map transfers - then goes through the packet router (RelayEnvelope.h).  Set every update, so the
+ * transport follows players leaving and the router changing hands; a LAN game sets nothing.
+ */
+void ConnectionManager::syncRelayRoutes() {
+	if ((m_transport == NULL) || TheGlobalData->m_lanPublicIP.isEmpty()) {
+		return;
+	}
+	for (Int i = 0; i < MAX_SLOTS; ++i) {
+		const Bool live = (m_connections[i] != NULL) && (m_connections[i]->isQuitting() == FALSE);
+		m_transport->setRelayPeer(i, live ? m_connections[i]->getUser()->GetIPAddr() : 0,
+			live ? m_connections[i]->getUser()->GetPort() : 0);
+	}
+	const Bool routerIsRemote = (m_packetRouterSlot >= 0) && (m_packetRouterSlot < MAX_SLOTS) &&
+		(m_packetRouterSlot != m_localSlot) && (m_connections[m_packetRouterSlot] != NULL);
+	if (routerIsRemote) {
+		m_transport->setRelayRouter(m_connections[m_packetRouterSlot]->getUser()->GetIPAddr(),
+			m_connections[m_packetRouterSlot]->getUser()->GetPort());
+	} else {
+		m_transport->setRelayRouter(0, 0);
+	}
+}
+
+/**
  * ConnectionManager::doRelay()
  * Queries the transport for commands that need to be relayed to another client.
  * Get those commands and relay them to the appropriate Connection(s). We make the
@@ -1309,6 +1334,7 @@ void ConnectionManager::update(Bool isInGame) {
 		return;
 	}
 
+	syncRelayRoutes();
 	m_transport->doRecv();
 
 	if (isInGame) {

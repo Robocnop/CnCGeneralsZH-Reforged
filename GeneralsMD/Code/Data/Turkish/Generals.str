@@ -17702,3 +17702,9 @@ END
 GUI:FactionPickSideNameHint
 "Bir tarafın rastgele bir ordusuyla oynamak için o tarafın adına tıklayın."
 END
+
+// Direct Connect over the internet (-publicip): the label over the host's game code.
+
+GUI:DirectConnectGameCode
+"Oyun kodunuz:"
+END

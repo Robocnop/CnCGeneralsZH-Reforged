@@ -48,6 +48,7 @@
 #include "GameClient/Shell.h"
 #include "GameClient/GameWindowTransitions.h"
 
+#include "GameNetwork/GameCode.h"
 #include "GameNetwork/IPEnumeration.h"
 #include "GameNetwork/LANAPI.h"
 #include "GameNetwork/LANAPICallbacks.h"
@@ -69,6 +70,7 @@ extern Bool LANisShuttingDown;
 
 static Bool isShuttingDown = false;
 static Bool buttonPushed = false;
+static Bool joinOnceUp = false;		///< -connect: press Join for the player when the screen has faded in
 
 static NameKeyType buttonBackID = NAMEKEY_INVALID;
 static NameKeyType buttonHostID = NAMEKEY_INVALID;
@@ -229,15 +231,19 @@ void JoinDirectConnectGame()
 	AsciiString ipstring;
 	asciientry.nextToken(&ipstring, "(");
 
-	char ipstr[16];
-	strcpy(ipstr, ipstring.str());
+	// a game code (GameCode.h) stands for the host's address
+	if (!gameCodeToIP(ipstring.str(), &ipaddress))
+	{
+		char ipstr[16];
+		strlcpy(ipstr, ipstring.str(), sizeof(ipstr));
 
-	Int ip1, ip2, ip3, ip4;
-	sscanf(ipstr, "%d.%d.%d.%d", &ip1, &ip2, &ip3, &ip4);
+		Int ip1 = 0, ip2 = 0, ip3 = 0, ip4 = 0;
+		sscanf(ipstr, "%d.%d.%d.%d", &ip1, &ip2, &ip3, &ip4);
 
-	DEBUG_LOG(("JoinDirectConnectGame - joining at %d.%d.%d.%d\n", ip1, ip2, ip3, ip4));
+		ipaddress = (ip1 << 24) + (ip2 << 16) + (ip3 << 8) + ip4;
+	}
 
-	ipaddress = (ip1 << 24) + (ip2 << 16) + (ip3 << 8) + ip4;
+	DEBUG_LOG(("JoinDirectConnectGame - joining at %d.%d.%d.%d\n", ipaddress >> 24, (ipaddress >> 16) & 0xff, (ipaddress >> 8) & 0xff, ipaddress & 0xff));
 //	ipaddress = htonl(ipaddress);
 
 	UnicodeString name;
@@ -352,7 +358,38 @@ void NetworkDirectConnectInit( WindowLayout *layout, void *userData )
 
 	UnsignedInt ip = TheLAN->GetLocalIP();
 	ipstr.format(u"%d.%d.%d.%d", ip >> 24, (ip & 0xff0000) >> 16, (ip & 0xff00) >> 8, ip & 0xff);
+
+	/* Over the internet (-publicip) the address is the router's, and what the others need is the
+		 game code that stands for it: "Your game code:  K7QM-2XFA  (86.247.13.201)". */
+	if (TheGlobalData->m_lanPublicIP.isNotEmpty())
+	{
+		char code[GAME_CODE_CHARS + 1];
+		gameCodeFromIP(ip, code);
+		UnicodeString codeText;
+		codeText.translate(AsciiString(code));
+		codeText.concat(u"  (");
+		codeText.concat(ipstr);
+		codeText.concat(u")");
+		ipstr = codeText;
+
+		GameWindow *description = TheWindowManager->winGetWindowFromId( NULL,
+			TheNameKeyGenerator->nameToKey( AsciiString( "NetworkDirectConnect.wnd:StaticLocalIPDescription" ) ) );
+		if (description != NULL)
+		{
+			GadgetStaticTextSetText(description, TheGameText->fetch("GUI:DirectConnectGameCode"));
+		}
+	}
 	GadgetStaticTextSetText(staticLocalIP, ipstr);
+
+	// -connect: the code or address goes in the box, and the join goes out once the screen is up
+	if (TheGlobalData->m_directConnectTarget.isNotEmpty())
+	{
+		UnicodeString target;
+		target.translate(TheGlobalData->m_directConnectTarget);
+		GadgetComboBoxSetText(comboboxRemoteIP, target);
+		joinOnceUp = TRUE;
+		TheWritableGlobalData->m_directConnectTarget.clear();
+	}
 
 	TheLAN->RequestLobbyLeave(true);
 	layout->hide(FALSE);
@@ -406,9 +443,15 @@ void NetworkDirectConnectShutdown( WindowLayout *layout, void *userData )
 //-------------------------------------------------------------------------------------------------
 void NetworkDirectConnectUpdate( WindowLayout * layout, void *userData)
 {
-	// We'll only be successful if we've requested to 
+	// We'll only be successful if we've requested to
 	if(isShuttingDown && TheShell->isAnimFinished() && TheTransitionHandler->isFinished())
 		shutdownComplete(layout);
+
+	if (joinOnceUp && !isShuttingDown && !buttonPushed && TheShell->isAnimFinished() && TheTransitionHandler->isFinished())
+	{
+		joinOnceUp = false;
+		JoinDirectConnectGame();
+	}
 }// NetworkDirectConnectUpdate
 
 //-------------------------------------------------------------------------------------------------

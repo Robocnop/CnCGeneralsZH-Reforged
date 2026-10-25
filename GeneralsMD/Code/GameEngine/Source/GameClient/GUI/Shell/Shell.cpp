@@ -549,6 +549,13 @@ void Shell::showShell( Bool runInit )
 		TheShell->push( AsciiString("Menus/LanLobbyMenu.wnd") );
 	}
 
+	// -directconnect and -connect: the Direct Connect screen, spent the same way.
+	if( TheGlobalData->m_directConnectOnStart )
+	{
+		TheWritableGlobalData->m_directConnectOnStart = FALSE;
+		TheShell->push( AsciiString("Menus/NetworkDirectConnect.wnd") );
+	}
+
 	// -skirmishlobby: the same trick for the single-player staging room, spent the same way.
 	if( TheGlobalData->m_skirmishLobbyOnStart )
 	{

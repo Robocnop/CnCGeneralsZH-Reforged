@@ -1027,6 +1027,7 @@ GameEngine/Include/GameNetwork/FrameDataManager.h
 GameEngine/Include/GameNetwork/FrameMetrics.h
 GameEngine/Include/GameNetwork/FrameResendPolicy.h
 GameEngine/Include/GameNetwork/GUIUtil.h
+GameEngine/Include/GameNetwork/GameCode.h
 GameEngine/Include/GameNetwork/GameDataMatch.h
 GameEngine/Include/GameNetwork/GameInfo.h
 GameEngine/Include/GameNetwork/GameMessageParser.h
@@ -1067,6 +1068,7 @@ GameEngine/Include/GameNetwork/NetworkDefs.h
 GameEngine/Include/GameNetwork/NetworkInterface.h
 GameEngine/Include/GameNetwork/NetworkUtil.h
 GameEngine/Include/GameNetwork/RankPointValue.h
+GameEngine/Include/GameNetwork/RelayEnvelope.h
 GameEngine/Include/GameNetwork/StallJudgement.h
 GameEngine/Include/GameNetwork/StunClient.h
 GameEngine/Include/GameNetwork/Transport.h
@@ -1667,6 +1669,7 @@ GameEngine/Source/GameNetwork/FrameDataManager.cpp
 GameEngine/Source/GameNetwork/FrameMetrics.cpp
 GameEngine/Source/GameNetwork/FrameResendPolicy.cpp
 GameEngine/Source/GameNetwork/GUIUtil.cpp
+GameEngine/Source/GameNetwork/GameCode.cpp
 GameEngine/Source/GameNetwork/GameDataMatch.cpp
 GameEngine/Source/GameNetwork/GameInfo.cpp
 GameEngine/Source/GameNetwork/GameMessageParser.cpp
@@ -1702,6 +1705,7 @@ GameEngine/Source/GameNetwork/NetMessageStream.cpp
 GameEngine/Source/GameNetwork/NetPacket.cpp
 GameEngine/Source/GameNetwork/Network.cpp
 GameEngine/Source/GameNetwork/NetworkUtil.cpp
+GameEngine/Source/GameNetwork/RelayEnvelope.cpp
 GameEngine/Source/GameNetwork/StallJudgement.cpp
 GameEngine/Source/GameNetwork/StunClient.cpp
 GameEngine/Source/GameNetwork/Transport.cpp

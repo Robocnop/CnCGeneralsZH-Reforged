@@ -63,6 +63,14 @@ public:
 
 	inline Bool allowBroadcasts(Bool val) { if (!m_udpsock) return false; return (m_udpsock->AllowBroadcasts(val))?true:false; }
 
+	/* A game over the internet: the players this transport talks to, and the packet router that
+		 carries what cannot reach one of them directly (RelayEnvelope.h).  Nothing is relayed and no
+		 probe is sent until a peer is set, so a LAN game's traffic is what it always was.  The
+		 connection manager sets both every update; an address of 0 clears the entry. */
+	void setRelayPeer( Int index, UnsignedInt addr, UnsignedShort port );
+	void setRelayRouter( UnsignedInt addr, UnsignedShort port );
+	Bool isRelayingTo( Int index );		///< whether datagrams for this peer go through the router now
+
 #if !defined(_WIN32)
 	/* Port defect 29 (udp.h): shareAddress(TRUE) before init lets this socket share its port with another
 		 copy's broadcast listener; initBroadcastListener binds the wildcard address to take only the
@@ -116,6 +124,26 @@ private:
 	UnsignedInt m_lastSecond;
 
 	Bool isGeneralsPacket( TransportMessage *msg );
+
+	struct RelayPeer
+	{
+		UnsignedInt addr;
+		UnsignedShort port;
+		UnsignedInt since;				///< when it was set
+		UnsignedInt heard;				///< when a datagram last came straight from it, 0 if never
+		UnsignedInt confirmed;		///< when it last said it hears us straight, 0 if never
+	};
+	RelayPeer m_relayPeers[MAX_SLOTS];
+	UnsignedInt m_relayRouterAddr;
+	UnsignedShort m_relayRouterPort;
+	UnsignedInt m_lastRelayProbe;
+
+	Int findRelayPeer( UnsignedInt addr, UnsignedShort port );
+	Int writeDatagram( const UnsignedByte *buf, Int len, UnsignedInt addr, UnsignedShort port );	///< the socket's Write, through the router when the peer needs it
+	void sendRelayProbes( UnsignedInt now );
+	/// a datagram that is the relay's business rather than the game's; true when it is used up
+	Bool handleRelayDatagram( const UnsignedByte *buf, Int len, UnsignedInt fromAddr, UnsignedShort fromPort,
+		const UnsignedByte **datagram, Int *datagramLength, UnsignedInt *addr, UnsignedShort *port );
 };
 
 #endif // _TRANSPORT_H_

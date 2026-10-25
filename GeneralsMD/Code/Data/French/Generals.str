@@ -18892,3 +18892,9 @@ END
 GUI:FactionPickSideNameHint
 "Cliquez sur le nom d'un camp pour jouer une armée aléatoire de ce camp."
 END
+
+// Direct Connect over the internet (-publicip): the label over the host's game code.
+
+GUI:DirectConnectGameCode
+"Votre code de partie :"
+END

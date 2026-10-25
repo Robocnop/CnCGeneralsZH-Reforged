@@ -32,6 +32,7 @@
 #include "GameNetwork/LinkSimulation.h"
 #include "GameNetwork/Transport.h"
 #include "GameNetwork/NetworkInterface.h"
+#include "GameNetwork/RelayEnvelope.h"
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -89,6 +90,10 @@ Transport::Transport(void)
 	m_shareAddress = false;
 	m_broadcastsOnly = false;
 #endif
+	memset(m_relayPeers, 0, sizeof(m_relayPeers));
+	m_relayRouterAddr = 0;
+	m_relayRouterPort = 0;
+	m_lastRelayProbe = 0;
 }
 
 Transport::~Transport(void)
@@ -278,7 +283,7 @@ Bool Transport::doSend() {
 		{
 			int bytesSent = 0;
 			// Send this message
-			if ((bytesSent = m_udpsock->Write((unsigned char *)(&m_outBuffer[i]), m_outBuffer[i].length + sizeof(TransportMessageHeader), m_outBuffer[i].addr, m_outBuffer[i].port)) > 0)
+			if ((bytesSent = writeDatagram((const UnsignedByte *)(&m_outBuffer[i]), m_outBuffer[i].length + sizeof(TransportMessageHeader), m_outBuffer[i].addr, m_outBuffer[i].port)) > 0)
 			{
 				//DEBUG_LOG(("Sending %d bytes to %d:%d\n", m_outBuffer[i].length + sizeof(TransportMessageHeader), m_outBuffer[i].addr, m_outBuffer[i].port));
 				m_outgoingPackets[m_statisticsSlot]++;
@@ -299,6 +304,11 @@ Bool Transport::doSend() {
 			}
 		}
 	} // for (i=0; i<MAX_MESSAGES; ++i)
+
+	if (m_relayRouterAddr != 0 && now - m_lastRelayProbe >= (UnsignedInt)RELAY_PROBE_INTERVAL_MS)
+	{
+		sendRelayProbes(now);
+	}
 
 	// Latency simulation - deliver anything we're holding on to that is ready
 	if (m_useLatency)
@@ -339,9 +349,11 @@ Bool Transport::doRecv()
 
 	TransportMessage incomingMessage;
 	unsigned char *buf = (unsigned char *)&incomingMessage;
+	// room for a relayed datagram's envelope on top of the largest datagram
+	UnsignedByte raw[RELAY_ENVELOPE_BYTES + MAX_NETWORK_MESSAGE_LEN];
 	int len = MAX_NETWORK_MESSAGE_LEN;
 //	DEBUG_LOG(("Transport::doRecv - checking\n"));
-	while ( (len=m_udpsock->Read(buf, MAX_NETWORK_MESSAGE_LEN, &from)) > 0 )
+	while ( (len=m_udpsock->Read(raw, sizeof(raw), &from)) > 0 )
 	{
 		// Packet loss simulation
 		if (m_usePacketLoss)
@@ -351,6 +363,24 @@ Bool Transport::doRecv()
 				continue;
 			}
 		}
+
+		// A probe, a datagram to pass on, or one passed on to us from another player: the relay's.
+		UnsignedInt fromAddr = ntohl(from.sin_addr.s_addr);
+		UnsignedShort fromPort = ntohs(from.sin_port);
+		const UnsignedByte *datagram = raw;
+		Int datagramLength = len;
+		if (handleRelayDatagram(raw, len, fromAddr, fromPort, &datagram, &datagramLength, &fromAddr, &fromPort))
+		{
+			continue;
+		}
+		if (datagramLength > MAX_NETWORK_MESSAGE_LEN)
+		{
+			m_unknownPackets[m_statisticsSlot]++;
+			m_unknownBytes[m_statisticsSlot] += len;
+			continue;
+		}
+		len = datagramLength;
+		memcpy(buf, datagram, len);
 
 //		DEBUG_LOG(("Transport::doRecv - Got something! len = %d\n", len));
 		// Decrypt the packet
@@ -388,8 +418,8 @@ Bool Transport::doRecv()
 						TheGlobalData->m_latencyPeriod,
 						GameClientRandomValue(-TheGlobalData->m_latencyNoise, TheGlobalData->m_latencyNoise) );
 					m_delayedInBuffer[i].message.length = incomingMessage.length;
-					m_delayedInBuffer[i].message.addr = ntohl(from.sin_addr.s_addr);
-					m_delayedInBuffer[i].message.port = ntohs(from.sin_port);
+					m_delayedInBuffer[i].message.addr = fromAddr;
+					m_delayedInBuffer[i].message.port = fromPort;
 					memcpy(&m_delayedInBuffer[i].message, buf, len);
 					break;
 				}
@@ -400,8 +430,8 @@ Bool Transport::doRecv()
 				{
 					// Empty slot; use it
 					m_inBuffer[i].length = incomingMessage.length;
-					m_inBuffer[i].addr = ntohl(from.sin_addr.s_addr);
-					m_inBuffer[i].port = ntohs(from.sin_port);
+					m_inBuffer[i].addr = fromAddr;
+					m_inBuffer[i].port = fromPort;
 					memcpy(&m_inBuffer[i], buf, len);
 					break;
 				}
@@ -477,6 +507,147 @@ Bool Transport::isGeneralsPacket( TransportMessage *msg )
 		return false;
 
 	return true;
+}
+
+// Relay through the packet router (RelayEnvelope.h) ------------
+
+void Transport::setRelayPeer( Int index, UnsignedInt addr, UnsignedShort port )
+{
+	if (index < 0 || index >= MAX_SLOTS)
+		return;
+	RelayPeer &peer = m_relayPeers[index];
+	if (peer.addr == addr && peer.port == port)
+		return;
+	peer.addr = addr;
+	peer.port = port;
+	peer.since = Clock_Milliseconds();
+	peer.heard = 0;
+	peer.confirmed = 0;
+}
+
+void Transport::setRelayRouter( UnsignedInt addr, UnsignedShort port )
+{
+	m_relayRouterAddr = addr;
+	m_relayRouterPort = port;
+}
+
+Bool Transport::isRelayingTo( Int index )
+{
+	if (index < 0 || index >= MAX_SLOTS || m_relayRouterAddr == 0)
+		return FALSE;
+	const RelayPeer &peer = m_relayPeers[index];
+	// the router itself is never reached through the router
+	if (peer.addr == 0 || (peer.addr == m_relayRouterAddr && peer.port == m_relayRouterPort))
+		return FALSE;
+	return relayNeedsRouter(Clock_Milliseconds(), peer.since, peer.confirmed);
+}
+
+Int Transport::findRelayPeer( UnsignedInt addr, UnsignedShort port )
+{
+	if (addr == 0)
+		return -1;
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+	{
+		if (m_relayPeers[i].addr == addr && m_relayPeers[i].port == port)
+			return i;
+	}
+	return -1;
+}
+
+Int Transport::writeDatagram( const UnsignedByte *buf, Int len, UnsignedInt addr, UnsignedShort port )
+{
+	const Int peer = findRelayPeer(addr, port);
+	if (peer >= 0 && isRelayingTo(peer))
+	{
+		UnsignedByte envelope[RELAY_ENVELOPE_BYTES + MAX_NETWORK_MESSAGE_LEN];
+		const Int envelopeLength = relayWrap(RELAY_FORWARD, addr, port, buf, len, envelope, sizeof(envelope));
+		if (envelopeLength > 0)
+		{
+			return (m_udpsock->Write(envelope, envelopeLength, m_relayRouterAddr, m_relayRouterPort) > 0) ? len : 0;
+		}
+	}
+	return m_udpsock->Write(buf, len, addr, port);
+}
+
+/* Every peer but the router, straight, whether or not its traffic goes through the router just now:
+	 the probe is how a pair finds out it can talk again, and it keeps the routers between them open. */
+void Transport::sendRelayProbes( UnsignedInt now )
+{
+	m_lastRelayProbe = now;
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+	{
+		const RelayPeer &peer = m_relayPeers[i];
+		if (peer.addr == 0 || (peer.addr == m_relayRouterAddr && peer.port == m_relayRouterPort))
+			continue;
+		UnsignedByte probe[RELAY_PROBE_BYTES];
+		const Bool heardYou = (peer.heard != 0) && (now - peer.heard < (UnsignedInt)RELAY_SILENCE_MS);
+		m_udpsock->Write(probe, relayBuildProbe(heardYou, probe), peer.addr, peer.port);
+	}
+}
+
+Bool Transport::handleRelayDatagram( const UnsignedByte *buf, Int len, UnsignedInt fromAddr, UnsignedShort fromPort,
+	const UnsignedByte **datagram, Int *datagramLength, UnsignedInt *addr, UnsignedShort *port )
+{
+	UnsignedInt now = Clock_Milliseconds();
+	if (now == 0)
+		now = 1;	// 0 is "never"
+	const Int sender = findRelayPeer(fromAddr, fromPort);
+
+	Bool heardYou = FALSE;
+	if (relayParseProbe(buf, len, &heardYou))
+	{
+		if (sender >= 0)
+		{
+			m_relayPeers[sender].heard = now;
+			if (heardYou)
+				m_relayPeers[sender].confirmed = now;
+		}
+		return TRUE;
+	}
+
+	UnsignedInt otherAddr = 0;
+	UnsignedShort otherPort = 0;
+	const UnsignedByte *inner = NULL;
+	Int innerLength = 0;
+	const RelayKind kind = relayUnwrap(buf, len, &otherAddr, &otherPort, &inner, &innerLength);
+
+	if (kind == RELAY_FORWARD)
+	{
+		// Only between two players of this game: the router is not a relay for the rest of the internet.
+		const Int target = findRelayPeer(otherAddr, otherPort);
+		if (sender >= 0 && target >= 0 && target != sender)
+		{
+			UnsignedByte envelope[RELAY_ENVELOPE_BYTES + MAX_NETWORK_MESSAGE_LEN];
+			const Int envelopeLength = relayWrap(RELAY_DELIVER, fromAddr, fromPort, inner, innerLength, envelope, sizeof(envelope));
+			if (envelopeLength > 0 && m_udpsock->Write(envelope, envelopeLength, otherAddr, otherPort) > 0)
+			{
+				m_outgoingPackets[m_statisticsSlot]++;
+				m_outgoingBytes[m_statisticsSlot] += envelopeLength;
+			}
+		}
+		return TRUE;
+	}
+
+	if (kind == RELAY_DELIVER)
+	{
+		// From the router we use, about a player of this game; anything else is dropped.
+		if (m_relayRouterAddr != 0 && fromAddr == m_relayRouterAddr && fromPort == m_relayRouterPort &&
+				findRelayPeer(otherAddr, otherPort) >= 0)
+		{
+			*datagram = inner;
+			*datagramLength = innerLength;
+			*addr = otherAddr;
+			*port = otherPort;
+			return FALSE;
+		}
+		return TRUE;
+	}
+
+	if (sender >= 0)
+	{
+		m_relayPeers[sender].heard = now;
+	}
+	return FALSE;
 }
 
 // Statistics ---------------------------------------------------

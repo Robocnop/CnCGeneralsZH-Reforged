@@ -15416,3 +15416,9 @@ END
 SIDE:Turkiye
 "Türkiye (Experimentell)"
 END
+
+// Direct Connect over the internet (-publicip): the label over the host's game code.
+
+GUI:DirectConnectGameCode
+"Dein Spielcode:"
+END

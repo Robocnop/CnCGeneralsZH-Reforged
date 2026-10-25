@@ -1062,6 +1062,8 @@ GlobalData::GlobalData()
 	m_lanPlayerName.clear(); // the lobby name comes out of the preferences unless -lanname says otherwise
 	m_lanPublicIP.clear(); // a LAN game: every player is known by his own machine's address
 	m_lanLobbyOnStart = FALSE;
+	m_directConnectOnStart = FALSE;
+	m_directConnectTarget.clear();
 	m_skirmishLobbyOnStart = FALSE;
 	m_optionsMenuOnStart = FALSE;
 	m_mapLight = FALSE;

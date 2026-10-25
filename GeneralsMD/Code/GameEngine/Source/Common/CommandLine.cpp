@@ -2527,6 +2527,30 @@ Int parsePublicIP(char *args[], int num)
 	return 2;
 }
 
+/* -directconnect opens the Direct Connect screen at startup, where the host reads off the game code
+	 to give the others, and -connect <code|a.b.c.d> also joins that host from it as soon as it is up,
+	 with the name in the LAN preferences.  The two are what a launcher passes for "host online" and
+	 "join"; the shell map goes off for the reason it does with -lanlobby. */
+Int parseDirectConnect(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_directConnectOnStart = TRUE;
+		TheWritableGlobalData->m_shellMapOn = FALSE;
+	}
+	return 1;
+}
+
+Int parseConnect(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+	{
+		TheWritableGlobalData->m_directConnectTarget = args[1];
+		parseDirectConnect(args, num);
+	}
+	return 2;
+}
+
 /* -skirmishlobby opens the skirmish staging room, which is the screen the lobby settings live on.
    No switch could reach it before: the room is behind two main menu clicks, so a change to its
    layout could be argued about but not photographed.  With -screenshot it can now be looked at from
@@ -3037,6 +3061,8 @@ static CommandLineParam params[] =
 	{ "-lanip", parseLanIP },
 	{ "-lanname", parseLanName },
 	{ "-lanlobby", parseLanLobby },
+	{ "-directconnect", parseDirectConnect },
+	{ "-connect", parseConnect },
 	{ "-publicip", parsePublicIP },
 	{ "-skirmishlobby", parseSkirmishLobby },
 	{ "-factionpicker", parseFactionPicker },

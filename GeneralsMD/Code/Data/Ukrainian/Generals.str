@@ -18772,3 +18772,9 @@ END
 GUI:SuperweaponTurkiyeKarguSwarm
 "Рій Kargu"
 END
+
+// Direct Connect over the internet (-publicip): the label over the host's game code.
+
+GUI:DirectConnectGameCode
+"Ваш код гри:"
+END

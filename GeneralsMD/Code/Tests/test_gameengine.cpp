@@ -61,6 +61,8 @@
 #include "GameNetwork/KeepAliveSchedule.h"
 #include "GameNetwork/StunClient.h"
 #include "GameNetwork/UPnPPortMapper.h"
+#include "GameNetwork/RelayEnvelope.h"
+#include "GameNetwork/GameCode.h"
 #include "GameNetwork/CushionMetrics.h"
 #include "GameNetwork/LinkSimulation.h"
 #include "Common/Energy.h"
@@ -6252,6 +6254,134 @@ TEST(upnp_port_mapping_requests_carry_the_port_and_the_client)
 	CHECK_EQ( upnpHttpStatus( "HTTP/1.0 500 Internal Server Error\r\n" ), 500 );
 	CHECK_EQ( upnpHttpStatus( "garbage" ), 0 );
 	CHECK_EQ( upnpHttpStatus( "" ), 0 );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The relay (RelayEnvelope.h): two players who cannot reach each other over the internet send
+// each other's datagrams through the packet router.
+// ---------------------------------------------------------------------------------------------
+
+TEST(relay_envelope_carries_the_datagram_and_the_address)
+{
+	const UnsignedByte datagram[] = { 0xde, 0xad, 0xbe, 0xef, 0x01 };
+	UnsignedByte envelope[64];
+	const Int length = relayWrap( RELAY_FORWARD, 0xC0A80114, 8088, datagram, sizeof(datagram), envelope, sizeof(envelope) );
+	CHECK_EQ( length, (Int)(RELAY_ENVELOPE_BYTES + sizeof(datagram)) );
+	CHECK( memcmp( envelope, "ZHRF", 4 ) == 0 );
+
+	UnsignedInt ip = 0;
+	UnsignedShort port = 0;
+	const UnsignedByte *inner = NULL;
+	Int innerLength = 0;
+	CHECK( relayUnwrap( envelope, length, &ip, &port, &inner, &innerLength ) == RELAY_FORWARD );
+	CHECK_EQ( ip, (UnsignedInt)0xC0A80114 );
+	CHECK_EQ( (Int)port, 8088 );
+	CHECK_EQ( innerLength, (Int)sizeof(datagram) );
+	CHECK( memcmp( inner, datagram, sizeof(datagram) ) == 0 );
+
+	CHECK( relayWrap( RELAY_DELIVER, 0x01020304, 8088, datagram, sizeof(datagram), envelope, sizeof(envelope) ) > 0 );
+	CHECK( relayUnwrap( envelope, RELAY_ENVELOPE_BYTES + sizeof(datagram), &ip, &port, &inner, &innerLength ) == RELAY_DELIVER );
+	CHECK_EQ( ip, (UnsignedInt)0x01020304 );
+
+	// no room, nothing to carry, or not an envelope at all
+	CHECK_EQ( relayWrap( RELAY_FORWARD, 1, 1, datagram, sizeof(datagram), envelope, RELAY_ENVELOPE_BYTES ), 0 );
+	CHECK_EQ( relayWrap( RELAY_NONE, 1, 1, datagram, sizeof(datagram), envelope, sizeof(envelope) ), 0 );
+	CHECK( relayUnwrap( envelope, RELAY_ENVELOPE_BYTES, &ip, &port, &inner, &innerLength ) == RELAY_NONE );
+	const UnsignedByte game[16] = { 0x12, 0x34, 0x56, 0x78 };
+	CHECK( relayUnwrap( game, sizeof(game), &ip, &port, &inner, &innerLength ) == RELAY_NONE );
+}
+
+TEST(relay_probe_says_whether_the_sender_hears_us)
+{
+	UnsignedByte probe[RELAY_PROBE_BYTES];
+	Bool heard = FALSE;
+	CHECK_EQ( relayBuildProbe( TRUE, probe ), (Int)RELAY_PROBE_BYTES );
+	CHECK( relayParseProbe( probe, RELAY_PROBE_BYTES, &heard ) );
+	CHECK( heard );
+	relayBuildProbe( FALSE, probe );
+	CHECK( relayParseProbe( probe, RELAY_PROBE_BYTES, &heard ) );
+	CHECK( !heard );
+	CHECK( !relayParseProbe( probe, RELAY_PROBE_BYTES - 1, &heard ) );
+	const UnsignedByte envelope[RELAY_PROBE_BYTES] = { 'Z', 'H', 'R', 'F', 0, 0, 0, 0 };
+	CHECK( !relayParseProbe( envelope, RELAY_PROBE_BYTES, &heard ) );
+}
+
+TEST(relay_goes_through_the_router_only_for_a_peer_that_does_not_hear_us)
+{
+	// a peer just met gets its grace before the router is called in
+	CHECK( !relayNeedsRouter( 10000, 10000, 0 ) );
+	CHECK( !relayNeedsRouter( 10000 + RELAY_SILENCE_MS - 1, 10000, 0 ) );
+	CHECK( relayNeedsRouter( 10000 + RELAY_SILENCE_MS, 10000, 0 ) );
+	// one that says it hears us goes straight, until it has been quiet too long
+	CHECK( !relayNeedsRouter( 60000, 10000, 59000 ) );
+	CHECK( relayNeedsRouter( 60000, 10000, 60000 - RELAY_SILENCE_MS ) );
+	// and the clock wrapping round does not matter
+	CHECK( !relayNeedsRouter( 100, 0xFFFFFF00u, 0 ) );
+	CHECK( !relayNeedsRouter( 100, 0xFFFFFF00u, 0xFFFFFFF0u ) );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The game code (GameCode.h): the host's internet address as eight characters to type.
+// ---------------------------------------------------------------------------------------------
+
+TEST(game_code_round_trips_every_kind_of_address)
+{
+	const UnsignedInt addresses[] = { 0x00000000, 0x56F70DC9, 0xC0000201, 0xFFFFFFFF, 0x7F000001, 0x0A000001 };
+	for (Int i = 0; i < (Int)(sizeof(addresses) / sizeof(addresses[0])); ++i)
+	{
+		char code[GAME_CODE_CHARS + 1];
+		gameCodeFromIP( addresses[i], code );
+		CHECK_EQ( (Int)strlen( code ), (Int)GAME_CODE_CHARS );
+		CHECK_EQ( code[4], '-' );
+		UnsignedInt back = 0;
+		CHECK( gameCodeToIP( code, &back ) );
+		CHECK_EQ( back, addresses[i] );
+	}
+}
+
+TEST(game_code_forgives_case_dashes_and_lookalikes_but_not_typos)
+{
+	char code[GAME_CODE_CHARS + 1];
+	gameCodeFromIP( 0x56F70DC9, code );
+
+	// lower case, no dash, spaces around
+	char loose[32];
+	snprintf( loose, sizeof(loose), " %c%c%c%c %c%c%c%c ", code[0], code[1], code[2], code[3], code[5], code[6], code[7], code[8] );
+	for (char *c = loose; *c; ++c)
+		*c = (char)tolower( *c );
+	UnsignedInt ip = 0;
+	CHECK( gameCodeToIP( loose, &ip ) );
+	CHECK_EQ( ip, (UnsignedInt)0x56F70DC9 );
+
+	// O for 0 and I or L for 1
+	gameCodeFromIP( 0, code );		// "0000-0000" plus a check that is 0 too
+	CHECK( gameCodeToIP( "OOOO-OOOO", &ip ) == gameCodeToIP( "0000-0000", &ip ) );
+
+	// every single character changed is refused: the check catches it
+	gameCodeFromIP( 0x56F70DC9, code );
+	static const char ALPHABET[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+	for (Int pos = 0; pos < GAME_CODE_CHARS; ++pos)
+	{
+		if (code[pos] == '-')
+			continue;
+		for (Int a = 0; a < 32; ++a)
+		{
+			if (ALPHABET[a] == code[pos])
+				continue;
+			char typo[GAME_CODE_CHARS + 1];
+			memcpy( typo, code, sizeof(typo) );
+			typo[pos] = ALPHABET[a];
+			CHECK( !gameCodeToIP( typo, &ip ) );
+		}
+	}
+
+	// an address, a short code, a long one, a stray letter
+	CHECK( !gameCodeToIP( "86.247.13.201", &ip ) );
+	CHECK( !gameCodeToIP( "ABCD-EFG", &ip ) );
+	CHECK( !gameCodeToIP( "ABCD-EFGHJ", &ip ) );
+	CHECK( !gameCodeToIP( "ABCD-EFGU", &ip ) );
+	CHECK( !gameCodeToIP( "", &ip ) );
+	CHECK( !gameCodeToIP( NULL, &ip ) );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -13048,6 +13178,24 @@ TEST(two_copies_on_one_machine_each_get_their_own_lobby_address_and_name)
 	char *argvLobby[] = { exe, lanLobby };
 	parseCommandLine( 2, argvLobby );
 	CHECK( TheGlobalData->m_lanLobbyOnStart );
+	CHECK( !TheGlobalData->m_shellMapOn );
+
+	// -directconnect opens the Direct Connect screen, and -connect also joins the host it names
+	TheWritableGlobalData->m_shellMapOn = TRUE;
+	CHECK( !TheGlobalData->m_directConnectOnStart );
+	char directConnect[] = "-directconnect";
+	char *argvDirectConnect[] = { exe, directConnect };
+	parseCommandLine( 2, argvDirectConnect );
+	CHECK( TheGlobalData->m_directConnectOnStart );
+	CHECK( !TheGlobalData->m_shellMapOn );
+	TheWritableGlobalData->m_directConnectOnStart = FALSE;
+	TheWritableGlobalData->m_shellMapOn = TRUE;
+	char connect[] = "-connect";
+	char code[] = "K7QM-2XFA";
+	char *argvConnect[] = { exe, connect, code };
+	parseCommandLine( 3, argvConnect );
+	CHECK_STR( TheGlobalData->m_directConnectTarget.str(), "K7QM-2XFA" );
+	CHECK( TheGlobalData->m_directConnectOnStart );
 	CHECK( !TheGlobalData->m_shellMapOn );
 
 	// -skirmishlobby is the same trick for the staging room the lobby settings live on
