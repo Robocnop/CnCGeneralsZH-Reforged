@@ -207,10 +207,11 @@ Bool LANAPI::StartAutomatedGame( AsciiString mapName, Int seed, const UnsignedIn
 		return FALSE;
 	}
 
-	/* init() binds the lobby socket to m_localIP, so the address has to be ours before it runs.
+	/* init() binds the lobby socket to m_bindIP, so the address has to be ours before it runs.
 		 Nothing is ever sent on that socket here - the lobby is only pumped from the LAN menus - but
 		 leaving it bound to INADDR_ANY would mean the second copy on a machine fails to bind. */
 	m_localIP = slotIPs[localSlot];
+	m_bindIP = m_localIP;
 	init();
 	m_isInLANMenu = FALSE;
 	m_inLobby = FALSE;
@@ -308,7 +309,7 @@ Bool LANAPI::StartAutomatedGame( AsciiString mapName, Int seed, const UnsignedIn
 
 	TheNetwork = NetworkInterface::createNetwork();
 	TheNetwork->init();
-	TheNetwork->setLocalAddress( m_localIP, NETWORK_BASE_PORT_NUMBER );
+	TheNetwork->setLocalAddress( m_bindIP, NETWORK_BASE_PORT_NUMBER );
 	TheNetwork->initTransport();
 	TheNetwork->parseUserList( m_currentGame );
 
@@ -385,7 +386,8 @@ void LANAPI::OnGameStart( void )
 		// Time to initialize TheNetwork for this game.
 		TheNetwork = NetworkInterface::createNetwork();
 		TheNetwork->init();
-		TheNetwork->setLocalAddress(m_localIP, 8088);
+		// the game's socket listens where the lobby's does; the slots know us by m_localIP
+		TheNetwork->setLocalAddress(m_bindIP, 8088);
 		TheNetwork->initTransport();
 
 		TheNetwork->parseUserList(m_currentGame);

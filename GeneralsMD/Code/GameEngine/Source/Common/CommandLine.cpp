@@ -2511,6 +2511,21 @@ Int parseLanLobby(char *args[], int num)
 	return 1;
 }
 
+/* -publicip <a.b.c.d|auto> plays the LAN lobby and its games over the internet.  The lobby knows
+	 every player by an address, and a LAN address is one only that LAN can reach; with this the
+	 machine goes by the address its router has on the internet instead, which every player then
+	 agrees on.  auto asks a public STUN server for it (StunClient.h).  The sockets stay on the
+	 machine's own address; only the name the others know it by changes.  The host's router has to
+	 let UDP 8086 and 8088 in, and the others join him with Direct Connect. */
+Int parsePublicIP(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+	{
+		TheWritableGlobalData->m_lanPublicIP = args[1];
+	}
+	return 2;
+}
+
 /* -skirmishlobby opens the skirmish staging room, which is the screen the lobby settings live on.
    No switch could reach it before: the room is behind two main menu clicks, so a change to its
    layout could be argued about but not photographed.  With -screenshot it can now be looked at from
@@ -3021,6 +3036,7 @@ static CommandLineParam params[] =
 	{ "-lanip", parseLanIP },
 	{ "-lanname", parseLanName },
 	{ "-lanlobby", parseLanLobby },
+	{ "-publicip", parsePublicIP },
 	{ "-skirmishlobby", parseSkirmishLobby },
 	{ "-factionpicker", parseFactionPicker },
 	{ "-optionsmenu", parseOptionsMenu },

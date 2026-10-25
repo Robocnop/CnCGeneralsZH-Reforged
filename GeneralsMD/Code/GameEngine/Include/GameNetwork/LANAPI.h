@@ -267,7 +267,13 @@ protected:
 	LANGameInfo *				m_currentGame;							///< Pointer to game (setup screen) we are currently in (NULL for lobby)
 	//LANGameInfo *m_currentGameInfo;			///< Pointer to game setup info we are currently in.
 
+	/* m_localIP is who we are to the other players: every slot, every message and every comparison
+		 goes by it.  m_bindIP is where our sockets listen.  On a LAN they are the same address; with
+		 -publicip the first becomes the router's internet address (applyPublicIP), which no socket on
+		 this machine could bind, and the second stays the machine's own. */
 	UnsignedInt					m_localIP;
+	UnsignedInt					m_bindIP;
+	void applyPublicIP( void );
 	Transport*					m_transport;
 #if !defined(_WIN32)
 	/* Port defect 29: the wildcard socket that takes the broadcasts m_transport, bound to m_localIP, cannot

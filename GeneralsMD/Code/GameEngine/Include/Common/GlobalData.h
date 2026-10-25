@@ -647,6 +647,7 @@ public:
 	Int m_netGameLocalSlot;						///< -netslot <n>: which of those addresses this copy of the game is
 	Int m_netGameAISlots;							///< -netai <n>: that many AI seats after the addresses, at the -aidiff rung
 	AsciiString m_lanPlayerName;			///< -lanname <name>: the name this copy takes in the LAN lobby (empty = the one in the preferences)
+	AsciiString m_lanPublicIP;				///< -publicip <a.b.c.d|auto>: the address the other players know us by over the internet (empty = the LAN address)
 	Bool m_lanLobbyOnStart;						///< -lanlobby: open the LAN lobby instead of stopping at the main menu
 	Bool m_skirmishLobbyOnStart;			///< -skirmishlobby: open the skirmish staging room instead of stopping at the main menu
 	Bool m_optionsMenuOnStart;				///< -optionsmenu: open the options screen over the main menu at startup

@@ -59,6 +59,7 @@
 #include "GameLogic/FPUControl.h"
 #include "GameNetwork/StallJudgement.h"
 #include "GameNetwork/KeepAliveSchedule.h"
+#include "GameNetwork/StunClient.h"
 #include "GameNetwork/CushionMetrics.h"
 #include "GameNetwork/LinkSimulation.h"
 #include "Common/Energy.h"
@@ -6085,6 +6086,80 @@ TEST(judgestall_the_verdict_is_monotonic_in_the_stall_time)
 	CHECK( strlen( stallVerdictName( STALL_WAITING ) ) > 0 );
 	CHECK( strlen( stallVerdictName( STALL_SILENT ) ) > 0 );
 	CHECK( strlen( stallVerdictName( STALL_WEDGED ) ) > 0 );
+}
+
+// ---------------------------------------------------------------------------------------------
+// STUN (StunClient.h): -publicip auto asks a public server which address the internet sees us at.
+// The bytes are RFC 5769's own test vectors, so the parser is checked against the standard rather
+// than against itself.
+// ---------------------------------------------------------------------------------------------
+
+static const UnsignedByte TheStunTestTransaction[ STUN_TRANSACTION_ID_BYTES ] =
+	{ 0xb7, 0xe7, 0xa7, 0x01, 0xbc, 0x34, 0xd6, 0x86, 0xfa, 0x87, 0xdf, 0xae };
+
+// RFC 5769 2.2: a Binding success response with SOFTWARE, XOR-MAPPED-ADDRESS, MESSAGE-INTEGRITY and
+// FINGERPRINT, for 192.0.2.1 port 32853
+static const UnsignedByte TheStunTestResponse[] =
+{
+	0x01, 0x01, 0x00, 0x3c, 0x21, 0x12, 0xa4, 0x42, 0xb7, 0xe7, 0xa7, 0x01, 0xbc, 0x34, 0xd6, 0x86, 0xfa, 0x87, 0xdf, 0xae,
+	0x80, 0x22, 0x00, 0x0b, 0x74, 0x65, 0x73, 0x74, 0x20, 0x76, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x20,
+	0x00, 0x20, 0x00, 0x08, 0x00, 0x01, 0xa1, 0x47, 0xe1, 0x12, 0xa6, 0x43,
+	0x00, 0x08, 0x00, 0x14, 0x2b, 0x91, 0xf5, 0x99, 0xfd, 0x9e, 0x90, 0xc3, 0x8c, 0x74, 0x89, 0xf9,
+	0x2a, 0xf9, 0xba, 0x53, 0xf0, 0x6b, 0xe7, 0xd7,
+	0x80, 0x28, 0x00, 0x04, 0xc0, 0x7d, 0x4c, 0x96,
+};
+
+TEST(stun_binding_request_is_a_bare_rfc5389_header)
+{
+	UnsignedByte request[ STUN_HEADER_BYTES ];
+	CHECK_EQ( stunBuildBindingRequest( request, TheStunTestTransaction ), (Int)STUN_HEADER_BYTES );
+	const UnsignedByte header[ 8 ] = { 0x00, 0x01, 0x00, 0x00, 0x21, 0x12, 0xa4, 0x42 };
+	CHECK( memcmp( request, header, sizeof( header ) ) == 0 );
+	CHECK( memcmp( request + 8, TheStunTestTransaction, STUN_TRANSACTION_ID_BYTES ) == 0 );
+}
+
+TEST(stun_response_gives_the_xor_mapped_address)
+{
+	UnsignedInt ip = 0;
+	UnsignedShort port = 0;
+	CHECK( stunParseBindingResponse( TheStunTestResponse, sizeof( TheStunTestResponse ), TheStunTestTransaction, &ip, &port ) );
+	CHECK_EQ( ip, (UnsignedInt)( ( 192u << 24 ) | ( 0u << 16 ) | ( 2u << 8 ) | 1u ) );
+	CHECK_EQ( (Int)port, 32853 );
+}
+
+TEST(stun_response_for_someone_else_or_cut_short_is_refused)
+{
+	UnsignedInt ip = 7;
+	UnsignedShort port = 7;
+	UnsignedByte otherTransaction[ STUN_TRANSACTION_ID_BYTES ];
+	memcpy( otherTransaction, TheStunTestTransaction, sizeof( otherTransaction ) );
+	otherTransaction[ 11 ] ^= 1;
+	CHECK( !stunParseBindingResponse( TheStunTestResponse, sizeof( TheStunTestResponse ), otherTransaction, &ip, &port ) );
+	// cut in the middle of XOR-MAPPED-ADDRESS: the header promises more than arrived
+	CHECK( !stunParseBindingResponse( TheStunTestResponse, 40, TheStunTestTransaction, &ip, &port ) );
+	CHECK( !stunParseBindingResponse( TheStunTestResponse, 10, TheStunTestTransaction, &ip, &port ) );
+	CHECK( !stunParseBindingResponse( NULL, 0, TheStunTestTransaction, &ip, &port ) );
+	// a request is not an answer
+	UnsignedByte request[ STUN_HEADER_BYTES ];
+	stunBuildBindingRequest( request, TheStunTestTransaction );
+	CHECK( !stunParseBindingResponse( request, sizeof( request ), TheStunTestTransaction, &ip, &port ) );
+	CHECK_EQ( ip, 7u );
+	CHECK_EQ( (Int)port, 7 );
+}
+
+TEST(stun_response_from_an_rfc3489_server_gives_the_mapped_address)
+{
+	// an old server answers with a plain MAPPED-ADDRESS, 203.0.113.9 port 8088
+	const UnsignedByte response[] =
+	{
+		0x01, 0x01, 0x00, 0x0c, 0x21, 0x12, 0xa4, 0x42, 0xb7, 0xe7, 0xa7, 0x01, 0xbc, 0x34, 0xd6, 0x86, 0xfa, 0x87, 0xdf, 0xae,
+		0x00, 0x01, 0x00, 0x08, 0x00, 0x01, 0x1f, 0x98, 0xcb, 0x00, 0x71, 0x09,
+	};
+	UnsignedInt ip = 0;
+	UnsignedShort port = 0;
+	CHECK( stunParseBindingResponse( response, sizeof( response ), TheStunTestTransaction, &ip, &port ) );
+	CHECK_EQ( ip, (UnsignedInt)( ( 203u << 24 ) | ( 0u << 16 ) | ( 113u << 8 ) | 9u ) );
+	CHECK_EQ( (Int)port, 8088 );
 }
 
 // ---------------------------------------------------------------------------------------------

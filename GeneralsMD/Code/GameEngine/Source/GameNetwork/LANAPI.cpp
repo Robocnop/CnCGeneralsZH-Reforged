@@ -37,6 +37,7 @@
 #include "Common/Registry.h"
 #include "GameNetwork/LANAPI.h"
 #include "GameNetwork/NetworkUtil.h"
+#include "GameNetwork/StunClient.h"
 #include "Common/GlobalData.h"
 #include "Common/RandomValue.h"
 #include "GameClient/GameText.h"
@@ -89,6 +90,7 @@ LANAPI::LANAPI( void ) : m_transport(NULL)
 	m_pendingAction = ACT_NONE;
 	m_expiration = 0;
 	m_localIP = 0;
+	m_bindIP = 0;
 	m_inLobby = true;
 	m_isInLANMenu = TRUE;
 	m_currentGame = NULL;
@@ -119,7 +121,7 @@ void LANAPI::init( void )
 	m_gameStartTime = 0;
 	m_gameStartSeconds = 0;
 	m_transport->reset();
-	m_transport->init(m_localIP, lobbyPort);
+	m_transport->init(m_bindIP, lobbyPort);
 	m_transport->allowBroadcasts(true);
 #if !defined(_WIN32)
 	listenForBroadcasts();
@@ -425,7 +427,8 @@ void LANAPI::update( void )
 		{
 			// Process the new message
 			UnsignedInt senderIP = m_transport->m_inBuffer[i].addr;
-			if (senderIP == m_localIP)
+			// our own broadcast comes back from the address we listen on, whatever we are known as
+			if (senderIP == m_localIP || senderIP == m_bindIP)
 			{
 				m_transport->m_inBuffer[i].length = 0;
 				continue;
@@ -1362,7 +1365,7 @@ void LANAPI::listenForBroadcasts( void )
 	m_broadcastListener->reset();
 	/* A lobby bound to the wildcard address (init() before SetLocalIP chooses one) hears broadcasts
 		 itself, and a second wildcard socket would take each one twice. */
-	if (m_localIP == 0 || m_localIP == INADDR_ANY)
+	if (m_bindIP == 0 || m_bindIP == INADDR_ANY)
 		return;
 	if (!m_broadcastListener->initBroadcastListener(lobbyPort))
 	{
@@ -1384,15 +1387,45 @@ Bool LANAPI::SetLocalIP( UnsignedInt localIP )
 {
 	Bool retval = TRUE;
 	m_localIP = localIP;
+	m_bindIP = localIP;
 
 	m_transport->reset();
-	retval = m_transport->init(m_localIP, lobbyPort);
+	retval = m_transport->init(m_bindIP, lobbyPort);
 	m_transport->allowBroadcasts(true);
 #if !defined(_WIN32)
 	listenForBroadcasts();
 #endif
+	applyPublicIP();
 
 	return retval;
+}
+
+void LANAPI::applyPublicIP( void )
+{
+	const AsciiString &wanted = TheGlobalData->m_lanPublicIP;
+	if (wanted.isEmpty())
+		return;
+
+	UnsignedInt publicIP = 0;
+	if (wanted.compareNoCase("auto") == 0)
+	{
+		if (!stunQueryPublicIP(m_bindIP, &publicIP))
+		{
+			DEBUG_LOG(("LANAPI::applyPublicIP - no STUN server answered, staying on the LAN address\n"));
+			return;
+		}
+	}
+	else
+	{
+		publicIP = ResolveIP(wanted);
+	}
+	if (publicIP == 0 || publicIP == INADDR_NONE)
+		return;
+
+	m_localIP = publicIP;
+	DEBUG_LOG(("LANAPI::applyPublicIP - known as %d.%d.%d.%d, listening on %d.%d.%d.%d\n",
+		m_localIP >> 24, (m_localIP >> 16) & 0xff, (m_localIP >> 8) & 0xff, m_localIP & 0xff,
+		m_bindIP >> 24, (m_bindIP >> 16) & 0xff, (m_bindIP >> 8) & 0xff, m_bindIP & 0xff));
 }
 
 void LANAPI::SetLocalIP( AsciiString localIP )
