@@ -7,6 +7,9 @@
   .NET; dist\ZHReforgedOnline\game\ is GeneralsMD\Run without the debug symbols and without any of
   EA's archives, which every player brings from his own Zero Hour. Build the game first
   (build.bat Release).
+
+  dist\ZHReforgedOnline-game.zip is that game folder on its own, for a GitHub release tagged
+  online-<commit>: the launcher downloads it by itself, so the exe alone is all a friend needs.
 #>
 param(
 	[string] $Run = (Join-Path $PSScriptRoot "..\..\GeneralsMD\Run"),
@@ -24,7 +27,8 @@ if (Test-Path $Out) {
 }
 
 dotnet publish (Join-Path $PSScriptRoot "ZHReforgedOnline.csproj") -c Release -r win-x64 --self-contained true `
-	-p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -o $Out
+	-p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true `
+	-p:DebugType=none -o $Out
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
 $game = Join-Path $Out "game"
@@ -37,4 +41,9 @@ $sha = (git -C $PSScriptRoot rev-parse --short=7 HEAD)
 if (-not $tag) { $tag = "dev" }
 Set-Content -Path (Join-Path $game "version.txt") -Value "$tag+$sha" -Encoding ascii
 
-Write-Host "Ready: $Out ($tag+$sha)"
+$zip = Join-Path (Split-Path $Out) "ZHReforgedOnline-game.zip"
+if (Test-Path $zip) { Remove-Item -Force $zip }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::CreateFromDirectory($game, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
+
+Write-Host "Ready: $Out and $zip ($tag+$sha, release tag online-$sha)"

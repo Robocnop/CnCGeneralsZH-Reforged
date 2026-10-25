@@ -16,8 +16,8 @@ namespace ZHReforgedOnline;
 /// </summary>
 public static class Installer
 {
-    /// <summary>The build this launcher carries, next to the exe.</summary>
-    public static string PayloadFolder => Path.Combine(AppContext.BaseDirectory, "game");
+    /// <summary>The build this launcher carries, next to the exe, when it came in a zip with it.</summary>
+    public static string LocalPayloadFolder => Path.Combine(AppContext.BaseDirectory, "game");
 
     private const string VersionFile = "version.txt";
     private const string InstalledMarker = "ZHReforgedOnline.version";
@@ -47,7 +47,9 @@ public static class Installer
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
 
-    public static string? PayloadVersion() => ReadFirstLine(Path.Combine(PayloadFolder, VersionFile));
+    /// <summary>The version of the build in a folder, or null when the folder holds none.</summary>
+    public static string? PayloadVersion(string folder) =>
+        File.Exists(Path.Combine(folder, "generals.exe")) ? ReadFirstLine(Path.Combine(folder, VersionFile)) : null;
 
     public static string? InstalledVersion(string? installFolder) =>
         string.IsNullOrEmpty(installFolder) ? null : ReadFirstLine(Path.Combine(installFolder, InstalledMarker));
@@ -71,15 +73,15 @@ public static class Installer
         }
     }
 
-    public static Task InstallAsync(string source, string target, IProgress<string> progress) =>
-        Task.Run(() => Install(source, target, progress));
+    public static Task InstallAsync(string source, string target, string payloadFolder, IProgress<string> progress) =>
+        Task.Run(() => Install(source, target, payloadFolder, progress));
 
-    private static void Install(string source, string target, IProgress<string> progress)
+    private static void Install(string source, string target, string payloadFolder, IProgress<string> progress)
     {
         source = Path.GetFullPath(source).TrimEnd('\\');
         target = Path.GetFullPath(target).TrimEnd('\\');
-        if (!Directory.Exists(PayloadFolder) || !File.Exists(Path.Combine(PayloadFolder, "generals.exe")))
-            throw new InvalidOperationException("Le dossier « game » du launcher est introuvable ou incomplet.");
+        if (PayloadVersion(payloadFolder) == null)
+            throw new InvalidOperationException("La version en ligne du jeu est introuvable ou incomplète.");
         if (string.Equals(source, target, StringComparison.OrdinalIgnoreCase) ||
             target.StartsWith(source + "\\", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Le dossier d'installation doit être en dehors du dossier de Zero Hour.");
@@ -113,7 +115,7 @@ public static class Installer
         }
 
         // 3. this build over it
-        var payload = Directory.EnumerateFiles(PayloadFolder, "*", SearchOption.AllDirectories)
+        var payload = Directory.EnumerateFiles(payloadFolder, "*", SearchOption.AllDirectories)
             .Where(file => !string.Equals(Path.GetFileName(file), VersionFile, StringComparison.OrdinalIgnoreCase))
             .ToList();
         done = 0;
@@ -121,14 +123,14 @@ public static class Installer
         {
             if (++done % 25 == 0 || done == payload.Count)
                 progress.Report($"Version en ligne : {done} / {payload.Count}");
-            var to = Path.Combine(target, Path.GetRelativePath(PayloadFolder, file));
+            var to = Path.Combine(target, Path.GetRelativePath(payloadFolder, file));
             Directory.CreateDirectory(Path.GetDirectoryName(to)!);
             if (File.Exists(to))
                 File.Delete(to); // a link to the original goes, the original stays
             File.Copy(file, to);
         }
 
-        File.WriteAllText(Path.Combine(target, InstalledMarker), (PayloadVersion() ?? "inconnue") + Environment.NewLine);
+        File.WriteAllText(Path.Combine(target, InstalledMarker), (PayloadVersion(payloadFolder) ?? "inconnue") + Environment.NewLine);
         progress.Report("Installation terminée");
     }
 

@@ -19,6 +19,7 @@ public partial class MainWindow : Window
 
     private readonly Settings settings = Settings.Load();
     private uint? publicIP;
+    private Updater.Release? latest;
     private bool busy;
 
     public MainWindow()
@@ -31,7 +32,10 @@ public partial class MainWindow : Window
         {
             Refresh();
             LoadArtwork();
+            var release = Updater.LatestAsync();
             await LookUpCodeAsync();
+            latest = await release;
+            Refresh();
         };
     }
 
@@ -52,14 +56,34 @@ public partial class MainWindow : Window
     private string? InstallFolder =>
         settings.InstallFolder ?? (SourceFolder is { } source ? Installer.DefaultInstallFolder(source) : null);
 
+    /// <summary>
+    /// The build to install from: the one of the latest release when it is here already, either
+    /// beside the launcher or downloaded; with no word from GitHub, whichever is here.
+    /// </summary>
+    private string? AvailablePayload
+    {
+        get
+        {
+            var here = new[] { Installer.LocalPayloadFolder, Updater.CacheFolder }
+                .Where(folder => Installer.PayloadVersion(folder) != null);
+            if (latest != null)
+                return here.FirstOrDefault(folder => Updater.BuildOf(Installer.PayloadVersion(folder)) == latest.Build);
+            return here.FirstOrDefault();
+        }
+    }
+
+    /// <summary>The build that should be installed: the latest release's, or the one at hand.</summary>
+    private string? TargetBuild =>
+        latest?.Build ?? (AvailablePayload is { } payload ? Updater.BuildOf(Installer.PayloadVersion(payload)) : null);
+
     private State CurrentState()
     {
         if (SourceFolder == null)
             return State.NoGame;
         if (!Installer.IsInstalled(InstallFolder))
             return State.NotInstalled;
-        var payload = Installer.PayloadVersion();
-        if (payload != null && payload != Installer.InstalledVersion(InstallFolder))
+        var target = TargetBuild;
+        if (target != null && target != Updater.BuildOf(Installer.InstalledVersion(InstallFolder)))
             return State.UpdateAvailable;
         return State.Ready;
     }
@@ -68,9 +92,9 @@ public partial class MainWindow : Window
     {
         var state = CurrentState();
         var installed = Installer.InstalledVersion(InstallFolder);
-        var payload = Installer.PayloadVersion();
+        var payload = TargetBuild;
         // "v3.3.0+564315e": the tag large, the commit with the state underneath
-        var shown = installed ?? payload ?? "—";
+        var shown = installed ?? (AvailablePayload is { } folder ? Installer.PayloadVersion(folder) : null) ?? "—";
         var plus = shown.IndexOf('+');
         GameVersion.Text = plus > 0 ? shown[..plus] : shown;
         var build = plus > 0 ? $" · {shown[(plus + 1)..]}" : "";
@@ -105,14 +129,14 @@ public partial class MainWindow : Window
         PlayButton.IsEnabled = !busy;
         HostButton.IsEnabled = ready && !busy;
         JoinButton.IsEnabled = ready && !busy && GameCode.IsJoinTarget(FriendCode.Text);
-        ReinstallButton.IsEnabled = !busy && state != State.NoGame && Directory.Exists(Installer.PayloadFolder);
+        ReinstallButton.IsEnabled = !busy && state != State.NoGame && (AvailablePayload != null || latest != null);
         var language = Languages.FirstOrDefault(l => l.Id == settings.Language);
         LanguageButton.Content = $"Langue : {language.Name ?? Languages[0].Name}";
     }
 
     private void LoadArtwork()
     {
-        var candidates = new[] { InstallFolder, Installer.PayloadFolder, SourceFolder }
+        var candidates = new[] { InstallFolder, Installer.LocalPayloadFolder, Updater.CacheFolder, SourceFolder }
             .Where(folder => folder != null)
             .Select(folder => Path.Combine(folder!, "Install_Final.bmp"));
         var file = candidates.FirstOrDefault(File.Exists);
@@ -164,7 +188,19 @@ public partial class MainWindow : Window
         try
         {
             var progress = new Progress<string>(text => StatusText.Text = text);
-            await Installer.InstallAsync(source, target, progress);
+            if (latest == null)
+                latest = await Updater.LatestAsync();
+            var payload = AvailablePayload;
+            if (payload == null && latest != null)
+            {
+                StatusTitle.Text = "Téléchargement…";
+                await Updater.DownloadAsync(latest, progress);
+                payload = AvailablePayload;
+            }
+            if (payload == null)
+                throw new InvalidOperationException("Impossible de récupérer le jeu : vérifiez votre connexion internet.");
+            StatusTitle.Text = "Installation…";
+            await Installer.InstallAsync(source, target, payload, progress);
             settings.InstallFolder = target;
             settings.Save();
             StatusText.Text = $"Installé dans {target}";
