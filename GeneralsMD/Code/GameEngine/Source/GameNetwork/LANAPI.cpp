@@ -37,6 +37,7 @@
 #include "Common/Registry.h"
 #include "GameNetwork/LANAPI.h"
 #include "GameNetwork/NetworkUtil.h"
+#include "GameNetwork/IPEnumeration.h"
 #include "GameNetwork/StunClient.h"
 #include "GameNetwork/UPnPPortMapper.h"
 #include "Common/GlobalData.h"
@@ -205,11 +206,17 @@ void LANAPI::reset( void )
 	
 }
 
+UnsignedShort LANAPI::lobbyPortFor(UnsignedInt ip)
+{
+	std::map<UnsignedInt, UnsignedShort>::const_iterator it = m_lobbyPorts.find(ip);
+	return (it != m_lobbyPorts.end()) ? it->second : lobbyPort;
+}
+
 void LANAPI::sendMessage(LANMessage *msg, UnsignedInt ip /* = 0 */)
 {
 	if (ip != 0)
 	{
-		m_transport->queueSend(ip, lobbyPort, (unsigned char *)msg, sizeof(LANMessage) /*, 0, 0 */);
+		m_transport->queueSend(ip, lobbyPortFor(ip), (unsigned char *)msg, sizeof(LANMessage) /*, 0, 0 */);
 	}
 	else if ((m_currentGame != NULL) && (m_currentGame->getIsDirectConnect()))
 	{
@@ -219,7 +226,7 @@ void LANAPI::sendMessage(LANMessage *msg, UnsignedInt ip /* = 0 */)
 			if (i != localSlot) {
 				GameSlot *slot = m_currentGame->getSlot(i);
 				if ((slot != NULL) && (slot->isHuman())) {
-					m_transport->queueSend(slot->getIP(), lobbyPort, (unsigned char *)msg, sizeof(LANMessage) /*, 0, 0 */);
+					m_transport->queueSend(slot->getIP(), lobbyPortFor(slot->getIP()), (unsigned char *)msg, sizeof(LANMessage) /*, 0, 0 */);
 				}
 			}
 		}
@@ -437,6 +444,18 @@ void LANAPI::update( void )
 			{
 				m_transport->m_inBuffer[i].length = 0;
 				continue;
+			}
+
+			// over the internet, answer to the port it came from (m_lobbyPorts)
+			if (TheGlobalData->m_lanPublicIP.isNotEmpty())
+			{
+				const UnsignedShort senderPort = m_transport->m_inBuffer[i].port;
+				if (lobbyPortFor(senderIP) != senderPort || m_lobbyPorts.find(senderIP) == m_lobbyPorts.end())
+				{
+					DEBUG_LOG(("LANAPI::update - %d.%d.%d.%d talks to the lobby from port %d\n",
+						senderIP >> 24, (senderIP >> 16) & 0xff, (senderIP >> 8) & 0xff, senderIP & 0xff, senderPort));
+					m_lobbyPorts[senderIP] = senderPort;
+				}
 			}
 
 			LANMessage *msg = (LANMessage *)(m_transport->m_inBuffer[i].data);
@@ -770,6 +789,8 @@ void LANAPI::RequestGameJoinDirectConnect(UnsignedInt ipaddress)
 	WideCharNCpy(msg.PlayerInfo.playerName, m_name.str(), g_lanPlayerNameLength);
 	msg.PlayerInfo.playerName[g_lanPlayerNameLength] = 0;
 
+	DEBUG_LOG(("LANAPI::RequestGameJoinDirectConnect - asking %d.%d.%d.%d:%d for its game\n",
+		ipaddress >> 24, (ipaddress >> 16) & 0xff, (ipaddress >> 8) & 0xff, ipaddress & 0xff, lobbyPortFor(ipaddress)));
 	sendMessage(&msg, ipaddress);
 
 	m_pendingAction = ACT_JOINDIRECTCONNECT;
@@ -1416,8 +1437,35 @@ void LANAPI::applyPublicIP( void )
 	{
 		if (!stunQueryPublicIP(m_bindIP, &publicIP))
 		{
-			DEBUG_LOG(("LANAPI::applyPublicIP - no STUN server answered, staying on the LAN address\n"));
-			return;
+			/* The address in the options can be one that does not lead out at all: a VMware or
+				 VirtualBox host adapter, a VPN's.  The machine's other addresses are tried for one that
+				 does, and the lobby moves there; link-local and loopback ones never lead out. */
+			IPEnumeration addresses;
+			for (EnumeratedIP *candidate = addresses.getAddresses(); candidate != NULL; candidate = candidate->getNext())
+			{
+				const UnsignedInt ip = candidate->getIP();
+				if (ip == m_bindIP || (ip >> 24) == 127 || (ip >> 16) == 0xA9FE)
+					continue;
+				if (stunQueryPublicIP(ip, &publicIP, 700))
+				{
+					DEBUG_LOG(("LANAPI::applyPublicIP - %d.%d.%d.%d leads nowhere, %d.%d.%d.%d reaches the internet\n",
+						m_bindIP >> 24, (m_bindIP >> 16) & 0xff, (m_bindIP >> 8) & 0xff, m_bindIP & 0xff,
+						ip >> 24, (ip >> 16) & 0xff, (ip >> 8) & 0xff, ip & 0xff));
+					m_bindIP = ip;
+					m_transport->reset();
+					m_transport->init(m_bindIP, lobbyPort);
+					m_transport->allowBroadcasts(true);
+#if !defined(_WIN32)
+					listenForBroadcasts();
+#endif
+					break;
+				}
+			}
+			if (publicIP == 0)
+			{
+				DEBUG_LOG(("LANAPI::applyPublicIP - no STUN server answered, staying on the LAN address\n"));
+				return;
+			}
 		}
 	}
 	else

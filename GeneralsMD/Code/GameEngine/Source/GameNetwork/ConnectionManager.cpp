@@ -408,6 +408,38 @@ void ConnectionManager::syncRelayRoutes() {
 }
 
 /**
+ * Over the internet a player's router sends his game socket's traffic out of whatever port it
+ * likes, and lets back in only what is sent to that port.  Every player is first known at the
+ * game port, 8088; a datagram from his address on another port is him, from where his router
+ * really puts him, and that is where his traffic goes from now on - so a player who opened
+ * nothing on his router is still reached.  Only by address, and only when one player has it: two
+ * behind one router share an address, and neither is moved then.
+ */
+void ConnectionManager::learnPeerPort(UnsignedInt addr, UnsignedShort port) {
+	if (TheGlobalData->m_lanPublicIP.isEmpty()) {
+		return;
+	}
+	Int match = -1;
+	for (Int s = 0; s < MAX_SLOTS; ++s) {
+		if ((m_connections[s] == NULL) || (m_connections[s]->getUser()->GetIPAddr() != addr)) {
+			continue;
+		}
+		if (m_connections[s]->getUser()->GetPort() == port) {
+			return;	// known where he is
+		}
+		if (match >= 0) {
+			return;	// two players on that address: which one is it?
+		}
+		match = s;
+	}
+	if (match >= 0) {
+		DEBUG_LOG(("ConnectionManager::learnPeerPort - player %d is at %d.%d.%d.%d:%d, not :%d\n", match,
+			addr >> 24, (addr >> 16) & 0xff, (addr >> 8) & 0xff, addr & 0xff, port, m_connections[match]->getUser()->GetPort()));
+		m_connections[match]->getUser()->SetPort(port);
+	}
+}
+
+/**
  * ConnectionManager::doRelay()
  * Queries the transport for commands that need to be relayed to another client.
  * Get those commands and relay them to the appropriate Connection(s). We make the
@@ -434,6 +466,8 @@ void ConnectionManager::doRelay() {
 				 to reach the queue that keeps resending the copy, and that queue is the sender's.  A
 				 packet from an address no connection owns leaves it MAX_SLOTS, and ackCommand then routes
 				 the way it always did. */
+			learnPeerPort(m_transport->m_inBuffer[i].addr, m_transport->m_inBuffer[i].port);
+
 			UnsignedInt senderSlot = MAX_SLOTS;
 			for (Int s = 0; s < MAX_SLOTS; ++s) {
 				if ((m_connections[s] != NULL) &&

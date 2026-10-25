@@ -542,16 +542,25 @@ Bool Transport::isRelayingTo( Int index )
 	return relayNeedsRouter(Clock_Milliseconds(), peer.since, peer.confirmed);
 }
 
+/* The exact address first; failing that the one peer at that IP, whatever the port: a router
+	 picks its own outside port for a player who opened none, and the players do not all know it. */
 Int Transport::findRelayPeer( UnsignedInt addr, UnsignedShort port )
 {
 	if (addr == 0)
 		return -1;
+	Int byAddress = -1;
 	for (Int i = 0; i < MAX_SLOTS; ++i)
 	{
-		if (m_relayPeers[i].addr == addr && m_relayPeers[i].port == port)
+		if (m_relayPeers[i].addr != addr)
+			continue;
+		if (m_relayPeers[i].port == port)
 			return i;
+		if (byAddress >= 0)
+			byAddress = MAX_SLOTS;	// more than one: none of them
+		else
+			byAddress = i;
 	}
-	return -1;
+	return (byAddress >= 0 && byAddress < MAX_SLOTS) ? byAddress : -1;
 }
 
 Int Transport::writeDatagram( const UnsignedByte *buf, Int len, UnsignedInt addr, UnsignedShort port )
@@ -619,7 +628,9 @@ Bool Transport::handleRelayDatagram( const UnsignedByte *buf, Int len, UnsignedI
 		{
 			UnsignedByte envelope[RELAY_ENVELOPE_BYTES + MAX_NETWORK_MESSAGE_LEN];
 			const Int envelopeLength = relayWrap(RELAY_DELIVER, fromAddr, fromPort, inner, innerLength, envelope, sizeof(envelope));
-			if (envelopeLength > 0 && m_udpsock->Write(envelope, envelopeLength, otherAddr, otherPort) > 0)
+			// to where the target really is, which may not be where the sender thinks
+			if (envelopeLength > 0 &&
+					m_udpsock->Write(envelope, envelopeLength, m_relayPeers[target].addr, m_relayPeers[target].port) > 0)
 			{
 				m_outgoingPackets[m_statisticsSlot]++;
 				m_outgoingBytes[m_statisticsSlot] += envelopeLength;
@@ -631,13 +642,14 @@ Bool Transport::handleRelayDatagram( const UnsignedByte *buf, Int len, UnsignedI
 	if (kind == RELAY_DELIVER)
 	{
 		// From the router we use, about a player of this game; anything else is dropped.
-		if (m_relayRouterAddr != 0 && fromAddr == m_relayRouterAddr && fromPort == m_relayRouterPort &&
-				findRelayPeer(otherAddr, otherPort) >= 0)
+		const Int author = findRelayPeer(otherAddr, otherPort);
+		if (m_relayRouterAddr != 0 && fromAddr == m_relayRouterAddr && fromPort == m_relayRouterPort && author >= 0)
 		{
+			// handed up as from the author at the address this machine knows him by
 			*datagram = inner;
 			*datagramLength = innerLength;
-			*addr = otherAddr;
-			*port = otherPort;
+			*addr = m_relayPeers[author].addr;
+			*port = m_relayPeers[author].port;
 			return FALSE;
 		}
 		return TRUE;

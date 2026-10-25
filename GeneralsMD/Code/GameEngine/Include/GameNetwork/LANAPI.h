@@ -35,6 +35,7 @@
 
 
 #include <stddef.h>	// offsetof, for the wire-layout asserts (B4)
+#include <map>
 #include "GameNetwork/Transport.h"
 #include "GameNetwork/NetworkInterface.h"
 #include "GameNetwork/NetworkDefs.h"
@@ -277,6 +278,11 @@ protected:
 	/// with -publicip, the router's mappings of the lobby and game ports to m_bindIP (UPnPPortMapper.h)
 	class UPnPPortMapper *m_portMapper;
 	UnsignedInt					m_portMapperIP;	///< the m_bindIP those mappings point at
+	/* Over the internet a player's router hands his lobby socket whatever outside port it likes, and
+		 only a reply to that port gets back in without a rule on his side.  So the port each address
+		 last talked to us from, and every message to that address goes there (lobbyPortFor). */
+	std::map<UnsignedInt, UnsignedShort> m_lobbyPorts;
+	UnsignedShort lobbyPortFor( UnsignedInt ip );
 	Transport*					m_transport;
 #if !defined(_WIN32)
 	/* Port defect 29: the wildcard socket that takes the broadcasts m_transport, bound to m_localIP, cannot

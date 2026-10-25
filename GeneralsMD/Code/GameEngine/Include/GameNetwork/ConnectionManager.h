@@ -164,6 +164,7 @@ public:
 
 private:
 	void syncRelayRoutes();			///< over the internet, tells the transport who the players and the router are (RelayEnvelope.h)
+	void learnPeerPort(UnsignedInt addr, UnsignedShort port);	///< over the internet, a player's traffic goes to the port it comes from
 	void doRelay();
 	void doKeepAlive();
 	void sendRemoteCommand(NetCommandRef *msg);
