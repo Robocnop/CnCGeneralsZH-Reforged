@@ -69,7 +69,11 @@ public partial class MainWindow : Window
         var state = CurrentState();
         var installed = Installer.InstalledVersion(InstallFolder);
         var payload = Installer.PayloadVersion();
-        GameVersion.Text = installed ?? payload ?? "—";
+        // "v3.3.0+564315e": the tag large, the commit with the state underneath
+        var shown = installed ?? payload ?? "—";
+        var plus = shown.IndexOf('+');
+        GameVersion.Text = plus > 0 ? shown[..plus] : shown;
+        var build = plus > 0 ? $" · {shown[(plus + 1)..]}" : "";
 
         switch (state)
         {
@@ -94,6 +98,8 @@ public partial class MainWindow : Window
                 PlayButton.Content = "Jouer";
                 break;
         }
+        if (state != State.UpdateAvailable)
+            GameState.Text += build;
 
         bool ready = state == State.Ready;
         PlayButton.IsEnabled = !busy;
